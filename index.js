@@ -14,17 +14,14 @@ async function escanearAbonoteatro() {
   const page = await browser.newPage();
 
   try {
-    // 1. Login
     await page.goto('https://www.abonoteatro.com/mi-perfil/', { waitUntil: 'networkidle2' });
     await page.type('#username', USER);
     await page.type('#password', PASS);
     await page.click('[name="login"]');
     await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
-    // 2. Ir a eventos
     await page.goto('https://www.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
     
-    // 3. Obtener títulos y lugares
     const lista = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.event-card')).map(e => ({
         titulo: e.querySelector('h3')?.innerText || "Sin título",
@@ -52,4 +49,5 @@ app.get('/', async (req, res) => {
   res.send(html);
 });
 
-app.listen(process.env.PORT || 3000, () => console.log('Servidor simple funcionando'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('Servidor listo en puerto ' + PORT));
