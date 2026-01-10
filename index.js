@@ -20,26 +20,38 @@ async function escanearAbonoteatro() {
     console.log("Accediendo a COMPRAS.abonoteatro.com...");
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
     
-    console.log("Buscando campos de login...");
-    await page.waitForSelector('input[type="text"], #username', { timeout: 30000 });
-    
+    console.log("Rellenando credenciales...");
+    await page.waitForSelector('input[type="text"]', { timeout: 30000 });
     await page.type('input[type="text"]', USER);
     await page.type('input[type="password"]', PASS);
     
-    console.log("Entrando...");
+    console.log("Buscando botón de acceso...");
+    // BUSCADOR DE BOTÓN MEJORADO: Busca cualquier botón que diga "Entrar", "Login", "Acceder" o sea de tipo submit
+    const botonSelector = await page.evaluate(() => {
+        const botones = Array.from(document.querySelectorAll('button, input[type="submit"], a.btn'));
+        const target = botones.find(b => 
+            b.innerText.toLowerCase().includes('entrar') || 
+            b.innerText.toLowerCase().includes('login') || 
+            b.innerText.toLowerCase().includes('acceder') ||
+            b.type === 'submit'
+        );
+        return target ? (target.id ? `#${target.id}` : (target.className ? `.${target.className.split(' ').join('.')}` : 'button')) : 'button';
+    });
+
+    console.log(`Haciendo clic en: ${botonSelector}`);
     await Promise.all([
-      page.click('button[type="submit"], .btn-login'),
+      page.click(botonSelector),
       page.waitForNavigation({ waitUntil: 'networkidle2' })
     ]);
 
-    console.log("Navegando a la cartelera...");
+    console.log("Login exitoso. Extrayendo eventos...");
     await page.goto('https://compras.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
     
     const eventos = await page.evaluate(() => {
-      const titulos = Array.from(document.querySelectorAll('h3, .event-title, .card-title'));
+      const titulos = Array.from(document.querySelectorAll('h3, .event-title, .card-title, .title'));
       return titulos.map(t => ({
         titulo: t.innerText.trim(),
-        lugar: t.parentElement?.querySelector('.venue, .event-location')?.innerText || "Consultar"
+        lugar: t.parentElement?.innerText.split('\n')[1] || "Madrid"
       })).filter(e => e.titulo.length > 2);
     });
 
@@ -60,12 +72,15 @@ app.get('/', async (req, res) => {
   try {
     const lista = await escanearAbonoteatro();
     let html = `
-      <body style="font-family: Arial; padding: 20px;">
-        <h1>Monitor Abonoteatro</h1>
+      <body style="font-family: Arial; padding: 20px; background-color: #f4f4f4;">
+        <h1 style="color: #333;">Monitor Abonoteatro</h1>
+        <p>Actualizado: ${new Date().toLocaleTimeString()}</p>
         <hr>
-        <ol>
-          ${lista.map(ev => `<li><strong>${ev.titulo}</strong> - ${ev.lugar}</li>`).join('')}
-        </ol>
+        <div style="background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <ul style="line-height: 2;">
+            ${lista.map(ev => `<li><strong>${ev.titulo}</strong> <span style="color: #666;">(${ev.lugar})</span></li>`).join('')}
+          </ul>
+        </div>
       </body>`;
     res.send(html);
   } catch (e) {
@@ -76,4 +91,4 @@ app.get('/', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Servidor listo en puerto ' + PORT));
+app.listen(PORT, '0.0.0.0', () => console.log('Servidor activo en puerto ' + PORT));
