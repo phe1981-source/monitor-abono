@@ -5,82 +5,110 @@ const app = express();
 const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
-let isScraping = false;
+let memoriaEventos = []; 
+let novedadesDetectadas = [];
+let ultimaVez = "Iniciando...";
+let browser, page;
 
-async function escanearAbonoteatro() {
-  const browser = await puppeteer.launch({
+async function iniciarRobot() {
+  browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process']
   });
-  
-  const page = await browser.newPage();
+  page = await browser.newPage();
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+  
+  await realizarLogin();
+  
+  // Escaneo cada 1 minuto
+  setInterval(escanearCartelera, 60 * 1000);
+  escanearCartelera(); 
+}
 
+async function realizarLogin() {
   try {
-    console.log("Accediendo a login (URL de compras)...");
-    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
-    
-    // 1. SELECTORES PRECISOS SEGÚN TU CÓDIGO FUENTE
-    console.log("Rellenando campos por ID...");
-    await page.waitForSelector('#nabonadologin', { timeout: 30000 });
-    
-    // Escribimos usando los IDs reales: nabonadologin y contrasenalogin
-    await page.type('#nabonadologin', USER, { delay: 50 });
-    await page.type('#contrasenalogin', PASS, { delay: 50 });
-    
-    // 2. CLIC EN EL BOTÓN REAL
-    console.log("Haciendo clic en el botón de entrada...");
-    // El botón es un <input type="button"> con clase 'buyBtn' y valor 'Entrar'
+    console.log("Realizando Login inicial...");
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2' });
+    await page.type('#nabonadologin', USER);
+    await page.type('#contrasenalogin', PASS);
     await Promise.all([
       page.click('input[value="Entrar"].buyBtn'),
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }).catch(() => console.log("Timeout navegación (a veces esperado)"))
+      page.waitForNavigation({ waitUntil: 'networkidle2' }).catch(() => {})
     ]);
-
-    // 3. IR A CARTELERA
-    console.log("Navegando a la cartelera...");
-    await page.goto('https://compras.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
-    
-    // 4. EXTRACCIÓN MEJORADA
-    const eventos = await page.evaluate(() => {
-      // Buscamos los títulos en la estructura de 'noo-ivent'
-      const items = Array.from(document.querySelectorAll('h3, .event-title, .title'));
-      return items.map(i => ({
-        titulo: i.innerText.trim(),
-        lugar: i.parentElement?.innerText.split('\n')[1] || "Ver en web"
-      })).filter(e => e.titulo.length > 2);
-    });
-
-    return eventos;
-
-  } catch (error) {
-    console.error("Fallo detallado:", error.message);
-    throw error;
-  } finally {
-    await browser.close();
+    console.log("Sesión iniciada.");
+  } catch (e) {
+    console.error("Error en login:", e.message);
   }
 }
 
-app.get('/', async (req, res) => {
-  if (isScraping) return res.send("<h1>Robot en marcha...</h1><p>Vuelve a cargar en 20 segundos.</p>");
-  isScraping = true;
-  
+async function escanearCartelera() {
   try {
-    const lista = await escanearAbonoteatro();
-    let html = `
-      <body style="font-family: Arial; padding: 20px; background: #35261A; color: white;">
-        <h1 style="color: #B9C800;">Monitor Abonoteatro (Cartelera)</h1>
-        <hr style="border: 1px solid #B9C800;">
-        <div style="background: white; color: #333; padding: 20px; border-radius: 8px;">
-          ${lista.length > 0 ? `<ul>${lista.map(e => `<li><strong>${e.titulo}</strong></li>`).join('')}</ul>` : "No se detectaron eventos. ¿Estás logueado?"}
-        </div>
-      </body>`;
-    res.send(html);
-  } catch (e) {
-    res.status(500).send(`<h1>Error</h1><p>${e.message}</p>`);
-  } finally {
-    isScraping = false;
+    console.log(`[${new Date().toLocaleTimeString()}] Comprobando cambios...`);
+    await page.goto('https://compras.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
+
+    // Si nos saca al login, volvemos a entrar
+    if (page.url().includes('login')) {
+      await realizarLogin();
+      return;
+    }
+
+    const carteleraActual = await page.evaluate(() => {
+      const elementos = Array.from(document.querySelectorAll('.tribe-events-list-photo-event-wrap, .type-tribe_events, .event-item, h3'));
+      return elementos.map(e => e.innerText.trim()).filter(t => t.length > 2);
+    });
+
+    // DETECTAR CAMBIOS
+    if (memoriaEventos.length > 0) {
+      // Buscamos qué textos hay ahora que no estaban en la memoria
+      const nuevos = carteleraActual.filter(titulo => !memoriaEventos.includes(titulo));
+      
+      if (nuevos.length > 0) {
+        nuevos.forEach(n => {
+          if (!novedadesDetectadas.find(nov => nov.titulo === n)) {
+            novedadesDetectadas.unshift({ titulo: n, fecha: new Date().toLocaleTimeString() });
+          }
+        });
+        console.log("¡Novedades detectadas!", nuevos);
+      }
+    }
+
+    memoriaEventos = carteleraActual;
+    ultimaVez = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
+
+  } catch (error) {
+    console.error("Error en escaneo:", error.message);
   }
+}
+
+iniciarRobot();
+
+app.get('/', (req, res) => {
+  res.send(`
+    <body style="font-family: sans-serif; background: #000; color: #fff; padding: 20px;">
+      <h2 style="color: #B9C800;">Alarma de Cambios Abonoteatro 🔔</h2>
+      <p>Última revisión: <strong>${ultimaVez}</strong></p>
+      
+      ${novedadesDetectadas.length > 0 ? `
+        <div style="background: #f1c40f; color: #000; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+          <h3 style="margin-top:0;">⚠️ ¡ALERTA: CAMBIO DETECTADO!</h3>
+          <ul>
+            ${novedadesDetectadas.map(n => `<li><strong>${n.titulo}</strong> (Visto a las ${n.fecha})</li>`).join('')}
+          </ul>
+          <a href="/limpiar" style="display:inline-block; margin-top:10px; padding:8px; background:#000; color:#fff; text-decoration:none; border-radius:5px;">Borrar Alertas</a>
+        </div>
+      ` : `<p style="color: #666;">No hay cambios nuevos. Vigilando cada minuto...</p>`}
+
+      <div style="background: #222; padding: 15px; border-radius: 10px;">
+        <h3>Lista completa actual (${memoriaEventos.length} elementos)</h3>
+        <ul style="font-size: 0.8em; color: #ccc;">
+          ${memoriaEventos.map(e => `<li>${e}</li>`).join('')}
+        </ul>
+      </div>
+    </body>
+  `);
 });
 
+app.get('/limpiar', (req, res) => { novedadesDetectadas = []; res.redirect('/'); });
+
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Monitor operativo'));
+app.listen(PORT, () => console.log('Vigilante sin filtros activo'));
