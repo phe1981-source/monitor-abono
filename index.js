@@ -30,6 +30,11 @@ async function buscarNovedades() {
     let historial = fs.existsSync('vistos.json') ? JSON.parse(fs.readFileSync('vistos.json')) : [];
     const idsVistos = new Set(historial.map(h => h.id));
     const resultado = actuales.map(ev => ({ ...ev, esNuevo: !idsVistos.has(ev.id) }));
+    const browser = await puppeteer.launch({
+  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
+  headless: "new",
+  args: ['--no-sandbox', '--disable-setuid-sandbox']
+});
 
     fs.writeFileSync('vistos.json', JSON.stringify(actuales));
     return resultado;
