@@ -7,8 +7,10 @@ const PASS = 'fAsHaMp@gZie3g@';
 
 async function escanearAbonoteatro() {
   const browser = await puppeteer.launch({
+    // Ruta directa al ejecutable descargado por npx en Render
+    executablePath: '/opt/render/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome',
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--single-process', '--no-zygote']
   });
   
   const page = await browser.newPage();
@@ -32,8 +34,8 @@ async function escanearAbonoteatro() {
     return lista;
 
   } catch (error) {
-    console.error("Error:", error);
-    return [{ titulo: "Error en el escaneo", lugar: error.message }];
+    console.error("Error en el robot:", error);
+    return [{ titulo: "Error", lugar: error.message }];
   } finally {
     await browser.close();
   }
@@ -41,7 +43,7 @@ async function escanearAbonoteatro() {
 
 app.get('/', async (req, res) => {
   const eventos = await escanearAbonoteatro();
-  let html = '<h1>Lista de Abonoteatro</h1><ol>';
+  let html = '<h1>AbonoMonitor (phe1981)</h1><ol>';
   eventos.forEach(ev => {
     html += `<li><strong>${ev.titulo}</strong> - ${ev.lugar}</li>`;
   });
@@ -50,4 +52,4 @@ app.get('/', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log('Servidor listo en puerto ' + PORT));
+app.listen(PORT, () => console.log('Servidor en puerto ' + PORT));
