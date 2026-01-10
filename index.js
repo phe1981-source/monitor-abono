@@ -6,21 +6,27 @@ const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
 async function escanearAbonoteatro() {
-  // Eliminamos la ruta fija y dejamos que Puppeteer use su configuración interna
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--single-process', '--no-zygote']
+    args: [
+      '--no-sandbox', 
+      '--disable-setuid-sandbox', 
+      '--single-process', 
+      '--no-zygote'
+    ]
   });
   
   const page = await browser.newPage();
 
   try {
+    // Intento de login
     await page.goto('https://www.abonoteatro.com/mi-perfil/', { waitUntil: 'networkidle2' });
     await page.type('#username', USER);
     await page.type('#password', PASS);
     await page.click('[name="login"]');
     await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
+    // Ir a eventos
     await page.goto('https://www.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
     
     const lista = await page.evaluate(() => {
@@ -42,7 +48,7 @@ async function escanearAbonoteatro() {
 
 app.get('/', async (req, res) => {
   const eventos = await escanearAbonoteatro();
-  let html = '<h1>AbonoMonitor (phe1981)</h1><ol>';
+  let html = '<h1>Monitor Simple Abonoteatro</h1><ol>';
   eventos.forEach(ev => {
     html += `<li><strong>${ev.titulo}</strong> - ${ev.lugar}</li>`;
   });
