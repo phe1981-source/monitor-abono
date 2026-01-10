@@ -18,13 +18,11 @@ async function escanearAbonoteatro() {
 
   try {
     console.log("Accediendo a COMPRAS.abonoteatro.com...");
-    // Usamos la URL que has detectado
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 60000 });
     
     console.log("Buscando campos de login...");
     await page.waitForSelector('input[type="text"], #username', { timeout: 30000 });
     
-    // Rellenamos el login
     await page.type('input[type="text"]', USER);
     await page.type('input[type="password"]', PASS);
     
@@ -38,7 +36,6 @@ async function escanearAbonoteatro() {
     await page.goto('https://compras.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
     
     const eventos = await page.evaluate(() => {
-      // Adaptado a la estructura de la zona de compras
       const titulos = Array.from(document.querySelectorAll('h3, .event-title, .card-title'));
       return titulos.map(t => ({
         titulo: t.innerText.trim(),
@@ -64,10 +61,19 @@ app.get('/', async (req, res) => {
     const lista = await escanearAbonoteatro();
     let html = `
       <body style="font-family: Arial; padding: 20px;">
-        <h1>Monitor Abonoteatro (Zona Compras)</h1>
+        <h1>Monitor Abonoteatro</h1>
         <hr>
         <ol>
           ${lista.map(ev => `<li><strong>${ev.titulo}</strong> - ${ev.lugar}</li>`).join('')}
         </ol>
       </body>`;
     res.send(html);
+  } catch (e) {
+    res.status(500).send(`<h1>Error</h1><p>No se pudo conectar: ${e.message}</p>`);
+  } finally {
+    isScraping = false;
+  }
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => console.log('Servidor listo en puerto ' + PORT));
