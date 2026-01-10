@@ -6,9 +6,8 @@ const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
 async function escanearAbonoteatro() {
+  // Eliminamos la ruta fija y dejamos que Puppeteer use su configuración interna
   const browser = await puppeteer.launch({
-    // Ruta directa al ejecutable descargado por npx en Render
-    executablePath: '/opt/render/.cache/puppeteer/chrome/linux-131.0.6778.204/chrome-linux64/chrome',
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--single-process', '--no-zygote']
   });
@@ -51,5 +50,5 @@ app.get('/', async (req, res) => {
   res.send(html);
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log('Servidor en puerto ' + PORT));
