@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-core');
 const express = require('express');
 const fs = require('fs');
 const app = express();
@@ -6,8 +6,13 @@ const app = express();
 const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
-async function buscarNovedades() {
+// Lugares que tienes prohibido mostrar
+const BLACKLIST = ["SALA BAKAN", "TEATRO LAS VEGAS", "GALILEO GALILEI", "BROADWAY", "OFF LATINA", "ZARZUELA"];
+const FAVORITOS = ["IFEMA", "PRÍNCIPE PÍO"];
+
+async function escanear() {
   const browser = await puppeteer.launch({
+    executablePath: '/usr/bin/google-chrome-stable',
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox']
   });
@@ -22,28 +27,45 @@ async function buscarNovedades() {
     
     const actuales = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('.event-card')).map(e => ({
-        id: e.querySelector('a')?.href || Math.random().toString(),
-        titulo: e.querySelector('h3')?.innerText || 'Sin título'
+        id: e.querySelector('a')?.href,
+        titulo: e.querySelector('h3')?.innerText,
+        lugar: e.querySelector('.venue')?.innerText || "Madrid"
       }));
     });
 
+    // Aplicamos tus filtros personales
+    const filtrados = actuales.filter(ev => 
+      !BLACKLIST.some(b => ev.lugar.toUpperCase().includes(b))
+    );
+
     let historial = fs.existsSync('vistos.json') ? JSON.parse(fs.readFileSync('vistos.json')) : [];
     const idsVistos = new Set(historial.map(h => h.id));
-    const resultado = actuales.map(ev => ({ ...ev, esNuevo: !idsVistos.has(ev.id) }));
-    const browser = await puppeteer.launch({
-  executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome-stable',
-  headless: "new",
-  args: ['--no-sandbox', '--disable-setuid-sandbox']
-});
+    
+    const resultado = filtrados.map(ev => ({
+      ...ev,
+      esNuevo: !idsVistos.has(ev.id),
+      esFav: FAVORITOS.some(f => ev.lugar.toUpperCase().includes(f))
+    }));
 
-    fs.writeFileSync('vistos.json', JSON.stringify(actuales));
+    fs.writeFileSync('vistos.json', JSON.stringify(filtrados));
     return resultado;
   } catch (e) { return []; } finally { await browser.close(); }
 }
 
 app.get('/', async (req, res) => {
-  const lista = await buscarNovedades();
-  res.send(`<h1>AbonoMonitor</h1>${lista.map(e => `<p style="color:${e.esNuevo?'red':'black'}">${e.titulo} ${e.esNuevo?'<b>NUEVO</b>':''}</p>`).join('')}`);
+  const lista = await escanear();
+  res.send(`
+    <html><body style="font-family:sans-serif; padding:20px;">
+      <h1>Monitor Abono</h1>
+      ${lista.map(e => `
+        <div style="border-left:8px solid ${e.esNuevo?'red':(e.esFav?'gold':'#ccc')}; padding:10px; margin-bottom:10px; background:white; border-radius:5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          <strong>${e.titulo}</strong><br>${e.lugar}
+          ${e.esNuevo ? ' <b style="color:red;">¡NUEVO!</b>' : ''}
+          ${e.esFav ? ' <b style="color:gold;">⭐ TOP</b>' : ''}
+        </div>
+      `).join('')}
+    </body></html>
+  `);
 });
 
 app.listen(process.env.PORT || 3000);
