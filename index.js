@@ -2,77 +2,74 @@ const puppeteer = require('puppeteer');
 const express = require('express');
 const app = express();
 
-const URL_DIRECTA = 'https://programacion.abonoteatro.com/catalogo/teatros2.php?token=afuihA5GtKvlX6VvX5FAsW';
+const USER = 'phe1981@gmail.com';
+const PASS = 'fAsHaMp@gZie3g@';
 
 let memoriaEventos = []; 
-let logEstado = "Iniciando monitor...";
-let ultimaActualizacion = "Nunca";
+let logEstado = "Monitor listo.";
 
-async function escaneoDirecto() {
-  console.log("Iniciando escaneo...");
+async function escaneoSimple() {
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process']
   });
-  
   const page = await browser.newPage();
   
-  // 1. Simular un navegador real para evitar bloqueos
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-
   try {
-    logEstado = "Cargando catálogo...";
-    await page.goto(URL_DIRECTA, { waitUntil: 'networkidle2', timeout: 60000 });
-    
-    // 2. Esperar un poco más de tiempo por el AJAX (10 segundos extra de cortesía)
-    logEstado = "Esperando que el contenido AJAX aparezca...";
-    await new Promise(r => setTimeout(r, 10000)); 
+    logEstado = "Paso 1: Login...";
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2' });
+    await page.type('#nabonadologin', USER);
+    await page.type('#contrasenalogin', PASS);
+    await page.click('input[value="Entrar"].buyBtn');
+    await page.waitForNavigation();
 
-    // 3. Extraer usando selectores más genéricos si el principal falla
-    const eventos = await page.evaluate(() => {
-      // Intentamos capturar los h2/h3 de eventos o cualquier cosa con la clase de título
-      const elementos = document.querySelectorAll('.tribe-events-list-event-title, h3.title, a.url');
-      return Array.from(elementos).map(el => el.innerText.trim()).filter(t => t.length > 5);
+    logEstado = "Paso 2: Entrando en Cartelera...";
+    await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2' });
+    
+    // Esperamos 10 segundos fijos. Sin condiciones. Que cargue lo que quiera.
+    logEstado = "Esperando carga total (10 seg)...";
+    await new Promise(r => setTimeout(r, 10000));
+
+    const frameElement = await page.$('iframe');
+    const frame = await frameElement.contentFrame();
+
+    // EXTRACCIÓN UNIVERSAL: Sacamos todos los enlaces y negritas (donde suelen estar los títulos)
+    const eventos = await frame.evaluate(() => {
+      const todos = Array.from(document.querySelectorAll('a, b, h2, h3, h4, .tribe-events-list-event-title'));
+      return todos
+        .map(el => el.innerText.trim())
+        .filter(texto => texto.length > 10 && !texto.includes('Ver sesiones') && !texto.includes('Comprar'));
     });
 
-    if (eventos.length === 0) {
-        throw new Error("Página cargada pero no se encontraron títulos. ¿Token caducado?");
-    }
-
     memoriaEventos = [...new Set(eventos)];
-    ultimaActualizacion = new Date().toLocaleString('es-ES', { timeZone: 'Europe/Madrid' });
-    logEstado = `Éxito: ${memoriaEventos.length} eventos encontrados.`;
-    console.log(logEstado);
+    logEstado = `Éxito: ${memoriaEventos.length} elementos encontrados.`;
 
   } catch (error) {
     logEstado = "Error: " + error.message;
-    console.error("Fallo en el escaneo:", error.message);
   } finally {
     await browser.close();
   }
 }
 
-setInterval(escaneoDirecto, 300000);
-escaneoDirecto();
+// Escanear cada 10 minutos
+setInterval(escaneoSimple, 600000);
+escaneoSimple();
 
 app.get('/', (req, res) => {
   res.send(`
-    <body style="font-family:sans-serif; background:#0e0e0e; color:#eee; padding:30px;">
-      <h1 style="color:#B9C800; border-bottom: 2px solid #B9C800;">Monitor de Cartelera</h1>
-      <div style="background:#1e1e1e; padding:15px; border-radius:8px; margin-bottom:20px;">
-        <p><strong>Estado:</strong> <span style="color:#f1c40f;">${logEstado}</span></p>
-        <p><strong>Última sincronización:</strong> ${ultimaActualizacion}</p>
-      </div>
-      <h3>Lista de Eventos (${memoriaEventos.length}):</h3>
-      <ul>
+    <body style="font-family:sans-serif; background:#000; color:#fff; padding:20px;">
+      <h2>Monitor Simplificado</h2>
+      <p>Estado: <strong>${logEstado}</strong></p>
+      <hr>
+      <ul style="font-size:0.8em;">
         ${memoriaEventos.length > 0 
           ? memoriaEventos.map(e => `<li>${e}</li>`).join('') 
-          : "<li>No hay datos. Si el error persiste, el token de la URL ha caducado.</li>"}
+          : "<li>Buscando... refresca en 1 minuto.</li>"}
       </ul>
-      <script>setTimeout(() => location.reload(), 60000);</script>
+      <script>setTimeout(() => location.reload(), 30000);</script>
     </body>
   `);
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Puerto ${PORT} abierto`));
+app.listen(PORT, '0.0.0.0', () => console.log('Monitor activo'));
