@@ -6,9 +6,9 @@ const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
 let memoriaEventos = []; 
-let logEstado = "Iniciando diagnóstico...";
+let logEstado = "Esperando primer escaneo...";
 
-async function primerEscaneo() {
+async function escanearConIframe() {
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process']
@@ -16,62 +16,46 @@ async function primerEscaneo() {
   const page = await browser.newPage();
   
   try {
-    logEstado = "Paso 1: Haciendo Login...";
+    logEstado = "Paso 1: Login...";
     console.log(logEstado);
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2' });
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
-    await page.click('input[value="Entrar"].buyBtn');
-    
-    // Esperamos a que la navegación post-login termine
-    await page.waitForNavigation({ waitUntil: 'networkidle2' });
+    await Promise.all([
+      page.click('input[value="Entrar"].buyBtn'),
+      page.waitForNavigation({ waitUntil: 'networkidle2' })
+    ]);
 
-    logEstado = "Paso 2: En cartelera. Esperando 20 segundos para carga total...";
+    logEstado = "Paso 2: Entrando en Cartelera...";
     console.log(logEstado);
-    await page.goto('https://compras.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
+    await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2' });
     
-    // ESPERA CRÍTICA: 20 segundos para que el AJAX termine de pintar los títulos de tu foto
-    await new Promise(r => setTimeout(r, 20000));
+    // 1. LOCALIZAR EL IFRAME
+    logEstado = "Paso 3: Localizando el marco de eventos (iframe)...";
+    console.log(logEstado);
+    const frameElement = await page.waitForSelector('iframe', { timeout: 30000 });
+    const frame = await frameElement.contentFrame();
 
-    // CAPTURA TOTAL: Leemos cualquier etiqueta que pueda contener el título
-    const datos = await page.evaluate(() => {
-      const selectores = 'h3, strong, .title, .entry-title, .tribe-events-list-event-title, div[style*="bold"]';
-      const items = Array.from(document.querySelectorAll(selectores));
-      return items.map(i => i.innerText.trim()).filter(t => t.length > 5);
+    if (!frame) {
+      throw new Error("No se pudo acceder al contenido del iframe.");
+    }
+
+    // 2. ESPERAR A QUE EL CONTENIDO REAL APAREZCA (Basado en tu HTML)
+    logEstado = "Paso 4: Esperando a que carguen los títulos del catálogo...";
+    console.log(logEstado);
+    // Esperamos a que aparezca la clase de los títulos que vimos en tu código fuente
+    await frame.waitForSelector('.tribe-events-list-event-title', { timeout: 30000 });
+
+    // 3. EXTRAER TODOS LOS DATOS SIN FILTROS
+    const eventos = await frame.evaluate(() => {
+      // Buscamos los títulos usando la clase exacta del HTML que enviaste
+      const titulos = Array.from(document.querySelectorAll('.tribe-events-list-event-title, h2, h3, h4'));
+      return titulos.map(t => t.innerText.trim()).filter(t => t.length > 3);
     });
 
-    memoriaEventos = [...new Set(datos)]; // Quitamos duplicados
-    logEstado = `Diagnóstico completado. Vistos: ${memoriaEventos.length} eventos.`;
+    memoriaEventos = [...new Set(eventos)]; // Eliminamos duplicados
+    logEstado = `¡Éxito! Se han detectado ${memoriaEventos.length} elementos en el catálogo.`;
     console.log(logEstado);
 
   } catch (error) {
-    logEstado = "Error detectado: " + error.message;
-    console.error(logEstado);
-  } finally {
-    await browser.close();
-  }
-}
-
-// Arranca el diagnóstico
-primerEscaneo();
-
-app.get('/', (req, res) => {
-  res.send(`
-    <body style="font-family:sans-serif; background:#000; color:#fff; padding:30px;">
-      <h1 style="color:#B9C800;">Monitor de Diagnóstico</h1>
-      <p style="font-size:1.2em;">Estado actual: <strong>${logEstado}</strong></p>
-      <hr style="border:1px solid #333;">
-      <h3>Eventos Capturados:</h3>
-      <ul style="color:#ccc;">
-        ${memoriaEventos.length > 0 
-          ? memoriaEventos.map(e => `<li>${e}</li>`).join('') 
-          : "<li>No se ha capturado nada todavía.</li>"}
-      </ul>
-      <p style="margin-top:50px; font-size:0.8em; color:#555;">La página se refresca cada 10s para ver el avance.</p>
-      <script>setTimeout(() => location.reload(), 10000);</script>
-    </body>
-  `);
-});
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Servidor de diagnóstico online'));
+    logEstado = "Error: " + error.
