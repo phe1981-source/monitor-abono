@@ -5,92 +5,91 @@ const app = express();
 const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
-// Evitamos que el servidor colapse si hay varias peticiones
 let isScraping = false;
 
-async function escanearAbonoteatro() {
+async function escanearConDiagnostico() {
   const browser = await puppeteer.launch({
     headless: "new",
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--single-process'
-    ]
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--single-process']
   });
   
   const page = await browser.newPage();
-  
-  // Bloqueo de recursos pesados para ahorrar RAM
-  await page.setRequestInterception(true);
-  page.on('request', (req) => {
-    if (['image', 'font', 'stylesheet'].includes(req.resourceType())) {
-      req.abort();
-    } else {
-      req.continue();
-    }
-  });
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   try {
-    await page.setDefaultNavigationTimeout(60000);
-    console.log("Iniciando sesión...");
-    await page.goto('https://www.abonoteatro.com/mi-perfil/', { waitUntil: 'domcontentloaded' });
+    console.log("--- INICIO DIAGNÓSTICO ---");
+    console.log("Intentando acceder a Abonoteatro...");
     
-    await page.waitForSelector('#username', { timeout: 30000 });
-    await page.type('#username', USER);
-    await page.type('#password', PASS);
-    await page.click('[name="login"]');
-    
-    await page.waitForNavigation({ waitUntil: 'domcontentloaded' });
-    console.log("Login exitoso, extrayendo eventos...");
-
-    await page.goto('https://www.abonoteatro.com/eventos/', { waitUntil: 'domcontentloaded' });
-    
-    const lista = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('h3')).map(h3 => ({
-        titulo: h3.innerText
-      })).filter(e => e.titulo.length > 3);
+    // 1. Intentamos cargar la página con un tiempo generoso
+    const response = await page.goto('https://www.abonoteatro.com/mi-perfil/', { 
+      waitUntil: 'networkidle2', 
+      timeout: 60000 
     });
 
-    return lista;
+    console.log(`Estado HTTP: ${response.status()}`);
 
+    // 2. ¿Qué título tiene la página? (Si dice "Access Denied", ya sabemos el problema)
+    const pageTitle = await page.title();
+    console.log(`Título de la página: ${pageTitle}`);
+
+    // 3. Buscamos el selector de forma flexible como sugirió Claude
+    const selectorEncontrado = await page.evaluate(() => {
+      const ids = ['#username', 'input[name="username"]', 'input[type="email"]'];
+      for (let id of ids) {
+        if (document.querySelector(id)) return id;
+      }
+      return null;
+    });
+
+    if (!selectorEncontrado) {
+      console.log("CRÍTICO: No se encuentra ningún selector de login.");
+      // Sacamos un trozo del HTML para ver qué hay
+      const html = await page.content();
+      console.log("Contenido HTML parcial:", html.slice(0, 500));
+      throw new Error("Selector de login no detectado");
+    }
+
+    console.log(`Selector detectado: ${selectorEncontrado}. Escribiendo credenciales...`);
+    await page.type(selectorEncontrado, USER);
+    await page.type('#password', PASS);
+    
+    await Promise.all([
+      page.click('[name="login"]'),
+      page.waitForNavigation({ waitUntil: 'networkidle2' })
+    ]);
+
+    console.log("Login OK. Navegando a eventos...");
+    await page.goto('https://www.abonoteatro.com/eventos/', { waitUntil: 'networkidle2' });
+    
+    const eventos = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('h3')).map(h3 => ({ titulo: h3.innerText }));
+    });
+
+    return eventos;
+
+  } catch (error) {
+    console.error("FALLO EN EL ROBOT:", error.message);
+    throw error;
   } finally {
     await browser.close();
+    console.log("--- FIN DIAGNÓSTICO ---");
   }
 }
 
 app.get('/', async (req, res) => {
-  if (isScraping) {
-    return res.status(503).send('<h1>El robot está trabajando</h1><p>Por favor, espera 30 segundos y refresca la página.</p>');
-  }
-
+  if (isScraping) return res.send("<h1>Robot ocupado...</h1><p>Espera 1 minuto.</p>");
   isScraping = true;
-  console.log("Petición recibida...");
-
+  
   try {
-    // Timeout de seguridad de 70 segundos
-    const eventos = await Promise.race([
-      escanearAbonoteatro(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('Tiempo de espera agotado')), 75000))
-    ]);
-
-    let html = '<h1>Monitor Abonoteatro</h1><ol>';
-    eventos.forEach(ev => html += `<li>${ev.titulo}</li>`);
-    html += '</ol>';
+    const lista = await escanearConDiagnostico();
+    let html = '<h1>Resultados</h1><ol>' + lista.map(e => `<li>${e.titulo}</li>`).join('') + '</ol>';
     res.send(html);
-
   } catch (e) {
-    console.error('Error:', e.message);
-    res.status(500).send('<h1>Error del servidor</h1><p>' + e.message + '</p>');
+    res.status(500).send(`<h1>Error</h1><p>${e.message}</p><p>Mira los logs de Render para detalles.</p>`);
   } finally {
     isScraping = false;
   }
 });
 
-// Manejo de errores globales para que el servidor no se apague
-process.on('unhandledRejection', err => console.error('REJECTION:', err));
-process.on('uncaughtException', err => console.error('EXCEPTION:', err));
-
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Servidor activo en puerto ' + PORT));
+app.listen(PORT, '0.0.0.0', () => console.log('Servidor de diagnóstico listo'));
