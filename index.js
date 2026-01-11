@@ -77,4 +77,13 @@ app.get('/', (req, res) => {
         </div>
         <div>
           <h3>2. Resultado / Cartelera</h3>
-          ${imgResultado ? `<img src="
+          ${imgResultado ? `<img src="data:image/png;base64,${imgResultado}" style="width:550px; border:3px solid #B9C800;">` : "<p>Esperando...</p>"}
+        </div>
+      </div>
+      <script>setTimeout(() => location.reload(), 20000);</script>
+    </body>
+  `);
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => console.log('Monitor con bypass de cookies listo'));
