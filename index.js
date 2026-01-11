@@ -7,7 +7,8 @@ const PASS = 'fAsHaMp@gZie3g@';
 
 // Variables de control
 let totalEventos = 0;
-let logEstado = "Iniciando secuencia...";
+let listaEventos = []; // Nueva variable para el listado
+let logEstado = "Iniciando...";
 let ultimaActualizacion = "Nunca";
 
 async function cicloAgileEstructurado() {
@@ -20,15 +21,10 @@ async function cicloAgileEstructurado() {
   await page.setViewport({ width: 1280, height: 1000 });
 
   try {
-    // 1. LOAD PAGE
-    logEstado = "Cargando página...";
+    logEstado = "Cargando login...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // 2. PICTURE BEFORE LOGIN (Desactivado por solicitud)
-    // await page.screenshot({ encoding: 'base64' });
-
-    // 3. MANAGER COOKIES
-    logEstado = "Gestionando cookies...";
+    // Gestión de Cookies
     await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('button')).find(b => 
         b.innerText.includes('Aceptar cookies') || b.innerText.includes('Aceptar')
@@ -37,37 +33,43 @@ async function cicloAgileEstructurado() {
     });
     await new Promise(r => setTimeout(r, 2000));
 
-    // 4. AUTOMATIC LOGIN
-    logEstado = "Escribiendo credenciales...";
+    // Login
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
-
-    // 5. CLICK ON ENTRAR
-    logEstado = "Pulsando entrar...";
     await Promise.all([
       page.click('input[value="Entrar"].buyBtn'),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
+      page.waitForNavigation({ waitUntil: 'domcontentloaded' }).catch(() => {})
     ]);
 
-    // 6. NAVEGACIÓN A CARTELERA (Obligatorio para que el contador funcione)
+    // Navegación a Cartelera
     logEstado = "Accediendo a cartelera...";
     await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' }).catch(() => {});
-    
-    // Espera para que el iframe cargue los datos
     await new Promise(r => setTimeout(r, 10000)); 
 
-    // 7. COUNT VENUES
-    logEstado = "Contando eventos reales...";
+    // 7. COUNT & LIST VENUES
+    logEstado = "Extrayendo listado de eventos...";
     const frameElement = await page.$('iframe');
     if (frameElement) {
       const frame = await frameElement.contentFrame();
       await frame.waitForSelector('.tribe-events-list-event-title', { timeout: 15000 }).catch(() => {});
 
-      totalEventos = await frame.evaluate(() => {
-        // Solo contamos títulos con enlace (evita el menú desplegable de recintos)
-        const titulosCartelera = document.querySelectorAll('.tribe-events-list-event-title a, .event-wrapper h3 a');
-        return titulosCartelera.length;
+      const data = await frame.evaluate(() => {
+        // Buscamos los contenedores de cada evento
+        const items = document.querySelectorAll('.tribe-events-list-event-wrapper, .event-wrapper, .type-tribe_events');
+        
+        return Array.from(items).map(item => {
+          const tituloElement = item.querySelector('.tribe-events-list-event-title a, h3 a');
+          const recintoElement = item.querySelector('.tribe-venue, .venue, .tribe-events-venue-details');
+          
+          return {
+            titulo: tituloElement ? tituloElement.innerText.trim() : "Sin título",
+            recinto: recintoElement ? recintoElement.innerText.trim() : "Recinto no especificado"
+          };
+        }).filter(ev => ev.titulo !== "Sin título"); // Limpiamos posibles falsos positivos
       });
+
+      listaEventos = data;
+      totalEventos = data.length;
     }
     
     logEstado = "Secuencia completada.";
@@ -80,23 +82,36 @@ async function cicloAgileEstructurado() {
   }
 }
 
-// Ejecutar cada 10 minutos
 setInterval(cicloAgileEstructurado, 600000);
 cicloAgileEstructurado();
 
-// Interfaz minimalista sin imágenes
 app.get('/', (req, res) => {
   res.send(`
-    <body style="background:#000; color:#fff; font-family:monospace; padding:40px; text-align:center;">
-      <div style="max-width:500px; margin:auto; border:2px solid #B9C800; border-radius:20px; padding:30px; background:#111;">
-        <h2 style="color:#B9C800;">MONITOR AGILE</h2>
-        <hr style="border:0; border-top:1px solid #333; margin:20px 0;">
-        <p style="font-size:1.2em;">Estado: <span style="color:#fff;">${logEstado}</span></p>
-        <div style="margin:40px 0;">
-          <p style="font-size:1em; color:#888; margin-bottom:0;">EVENTOS ACTIVOS</p>
-          <p style="font-size:5em; font-weight:bold; color:#B9C800; margin:0;">${totalEventos}</p>
+    <body style="background:#000; color:#fff; font-family:monospace; padding:20px;">
+      <div style="max-width:800px; margin:auto; border:2px solid #B9C800; border-radius:15px; padding:20px; background:#111; text-align:center;">
+        <h2 style="color:#B9C800;">MONITOR AGILE + LISTADO</h2>
+        <p>Estado: ${logEstado} | Actualizado: ${ultimaActualizacion}</p>
+        <p style="font-size:3em; font-weight:bold; color:#B9C800; margin:10px 0;">${totalEventos}</p>
+        
+        <div style="text-align:left; margin-top:30px; max-height:500px; overflow-y:auto; border:1px solid #333; padding:10px; background:#050505;">
+          <table style="width:100%; border-collapse:collapse; font-size:0.85em;">
+            <thead>
+              <tr style="border-bottom:2px solid #B9C800; color:#B9C800;">
+                <th style="padding:10px; text-align:left;">Evento</th>
+                <th style="padding:10px; text-align:left;">Recinto</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${listaEventos.map((ev, i) => `
+                <tr style="border-bottom:1px solid #222;">
+                  <td style="padding:8px;">${i+1}. ${ev.titulo}</td>
+                  <td style="padding:8px; color:#888;">${ev.recinto}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          ${listaEventos.length === 0 ? '<p style="text-align:center; padding:20px;">No hay eventos en la lista aún.</p>' : ''}
         </div>
-        <p style="color:#444;">Última actualización: ${ultimaActualizacion}</p>
       </div>
       <script>setTimeout(() => location.reload(), 30000);</script>
     </body>
@@ -104,4 +119,4 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Monitor Agile desplegado'));
+app.listen(PORT, '0.0.0.0', () => console.log('Monitor con listado activo'));
