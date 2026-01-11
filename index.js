@@ -5,10 +5,10 @@ const app = express();
 const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
-let imgAntes = ""; 
-let imgDespues = "";
+// Variables de control
 let totalEventos = 0;
 let logEstado = "Iniciando secuencia...";
+let ultimaActualizacion = "Nunca";
 
 async function cicloAgileEstructurado() {
   console.log("--- Iniciando Nueva Secuencia ---");
@@ -24,9 +24,8 @@ async function cicloAgileEstructurado() {
     logEstado = "Cargando página...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-// 2. PICTURE BEFORE LOGIN (Comentado por solicitud)
-    // logEstado = "Captura 1: Antes del login...";
-    // imgAntes = await page.screenshot({ encoding: 'base64' });
+    // 2. PICTURE BEFORE LOGIN (Desactivado por solicitud)
+    // await page.screenshot({ encoding: 'base64' });
 
     // 3. MANAGER COOKIES
     logEstado = "Gestionando cookies...";
@@ -38,7 +37,7 @@ async function cicloAgileEstructurado() {
     });
     await new Promise(r => setTimeout(r, 2000));
 
-    // 4. AUTOMATIC LOGIN (Enter user and pass)
+    // 4. AUTOMATIC LOGIN
     logEstado = "Escribiendo credenciales...";
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
@@ -47,71 +46,59 @@ async function cicloAgileEstructurado() {
     logEstado = "Pulsando entrar...";
     await Promise.all([
       page.click('input[value="Entrar"].buyBtn'),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => console.log("Navegación lenta, continuando..."))
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {})
     ]);
 
-// 6. NAVEGACIÓN A CARTELERA (Necesario para contar)
+    // 6. NAVEGACIÓN A CARTELERA (Obligatorio para que el contador funcione)
     logEstado = "Accediendo a cartelera...";
-    // Navegamos a la URL donde están los espectáculos
-    await page.goto('https://compras.abonoteatro.com/teatro/', { 
-      waitUntil: 'domcontentloaded' 
-    }).catch(() => {});
+    await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' }).catch(() => {});
     
-    // Espera crucial: Si quitamos esto, el bot intenta contar 
-    // antes de que los eventos aparezcan en pantalla.
-    await new Promise(r => setTimeout(r, 10000));
+    // Espera para que el iframe cargue los datos
+    await new Promise(r => setTimeout(r, 10000)); 
 
-// 7. AFTER PICTURE, COUNT VENUES (Conteo real sin filtros de contenido)
+    // 7. COUNT VENUES
     logEstado = "Contando eventos reales...";
     const frameElement = await page.$('iframe');
     if (frameElement) {
       const frame = await frameElement.contentFrame();
-      
-      // Esperamos a que la cartelera cargue los elementos visuales
       await frame.waitForSelector('.tribe-events-list-event-title', { timeout: 15000 }).catch(() => {});
 
       totalEventos = await frame.evaluate(() => {
-        // Seleccionamos solo los títulos que tienen un enlace (esto descarta el menú de recintos)
-        // y que están dentro de los contenedores de la cartelera
+        // Solo contamos títulos con enlace (evita el menú desplegable de recintos)
         const titulosCartelera = document.querySelectorAll('.tribe-events-list-event-title a, .event-wrapper h3 a');
-        
         return titulosCartelera.length;
       });
     }
     
     logEstado = "Secuencia completada.";
+    ultimaActualizacion = new Date().toLocaleTimeString('es-ES');
 
   } catch (error) {
-    logEstado = "Error en secuencia: " + error.message;
-    try { if(!imgDespues) imgDespues = await page.screenshot({ encoding: 'base64' }); } catch(e) {}
+    logEstado = "Error: " + error.message;
   } finally {
     await browser.close();
   }
 }
 
+// Ejecutar cada 10 minutos
 setInterval(cicloAgileEstructurado, 600000);
 cicloAgileEstructurado();
 
+// Interfaz minimalista sin imágenes
 app.get('/', (req, res) => {
   res.send(`
-    <body style="background:#000; color:#fff; font-family:monospace; padding:20px; text-align:center;">
-      <h2 style="color:#B9C800;">Monitor Agile: Secuencia de 7 Pasos</h2>
-      <div style="background:#111; padding:10px; border:1px solid #333; margin-bottom:20px;">
-        <p>Estado: <strong>${logEstado}</strong></p>
-        <p style="font-size:2.5em; margin:10px 0;">Eventos: <span style="color:#B9C800;">${totalEventos}</span></p>
-      </div>
-      
-      <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
-        <div style="flex:1; min-width:400px;">
-          <h3 style="color:#666;">1. Foto Antes (Login/Cookies)</h3>
-          ${imgAntes ? `<img src="data:image/png;base64,${imgAntes}" style="width:100%; border:2px solid #444; border-radius:8px;">` : "<p>Cargando...</p>"}
+    <body style="background:#000; color:#fff; font-family:monospace; padding:40px; text-align:center;">
+      <div style="max-width:500px; margin:auto; border:2px solid #B9C800; border-radius:20px; padding:30px; background:#111;">
+        <h2 style="color:#B9C800;">MONITOR AGILE</h2>
+        <hr style="border:0; border-top:1px solid #333; margin:20px 0;">
+        <p style="font-size:1.2em;">Estado: <span style="color:#fff;">${logEstado}</span></p>
+        <div style="margin:40px 0;">
+          <p style="font-size:1em; color:#888; margin-bottom:0;">EVENTOS ACTIVOS</p>
+          <p style="font-size:5em; font-weight:bold; color:#B9C800; margin:0;">${totalEventos}</p>
         </div>
-        <div style="flex:1; min-width:400px;">
-          <h3 style="color:#B9C800;">2. Foto Después (Cartelera)</h3>
-          ${imgDespues ? `<img src="data:image/png;base64,${imgDespues}" style="width:100%; border:2px solid #B9C800; border-radius:8px;">` : "<p>Cargando...</p>"}
-        </div>
+        <p style="color:#444;">Última actualización: ${ultimaActualizacion}</p>
       </div>
-      <script>setTimeout(() => location.reload(), 20000);</script>
+      <script>setTimeout(() => location.reload(), 30000);</script>
     </body>
   `);
 });
