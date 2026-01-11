@@ -5,72 +5,75 @@ const app = express();
 const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
-let textoCapturado = "Esperando primer escaneo...";
+let vistaPrevia = "Esperando datos...";
 let logEstado = "Iniciado";
 
-async function escaneoMVP() {
-  console.log("--- Iniciando Escaneo MVP ---");
+async function escaneoRapido() {
+  console.log("Iniciando escaneo ultra-rápido...");
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-web-security']
   });
   const page = await browser.newPage();
   
   try {
-    logEstado = "Intentando Login...";
-    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2' });
+    // 1. LOGIN (Sin esperar a que cargue toda la basura de la web)
+    logEstado = "Accediendo al Login...";
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
+    
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
-    await page.click('input[value="Entrar"].buyBtn');
     
-    // Esperamos a que la URL cambie tras el login
-    await page.waitForNavigation({ waitUntil: 'networkidle2' });
+    logEstado = "Enviando credenciales...";
+    await Promise.all([
+        page.click('input[value="Entrar"].buyBtn'),
+        page.waitForNavigation({ waitUntil: 'domcontentloaded' })
+    ]);
 
-    logEstado = "Entrando en Cartelera...";
-    await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2' });
+    // 2. IR A CARTELERA
+    logEstado = "Cargando Cartelera...";
+    await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' });
     
-    // Espera fija de 10 segundos. No buscamos selectores, solo esperamos.
-    await new Promise(r => setTimeout(r, 10000));
+    // Espera fija de 15 segundos para que el iframe "respire"
+    await new Promise(r => setTimeout(r, 15000));
 
-    // Capturamos el texto de la página principal y del iframe si existe
-    logEstado = "Capturando texto bruto...";
-    let contenido = await page.evaluate(() => document.body.innerText);
+    // 3. CAPTURA DE TEXTO EN TODOS LOS MARCOS
+    logEstado = "Extrayendo texto...";
+    let textoTotal = "";
+    const frames = page.frames();
     
-    const frameElement = await page.$('iframe');
-    if (frameElement) {
-      const frame = await frameElement.contentFrame();
-      const textoIframe = await frame.evaluate(() => document.body.innerText);
-      contenido += "\n\n--- CONTENIDO DEL IFRAME ---\n\n" + textoIframe;
+    for (const f of frames) {
+        try {
+            const txt = await f.evaluate(() => document.body.innerText);
+            textoTotal += `\n--- MARCO (${f.url().substring(0,40)}...) ---\n${txt}\n`;
+        } catch (e) {}
     }
 
-    textoCapturado = contenido;
-    logEstado = "Escaneo completado.";
+    vistaPrevia = textoTotal || "No se pudo extraer texto de ningún marco.";
+    logEstado = "Completado.";
 
   } catch (error) {
-    logEstado = "Error: " + error.message;
-    textoCapturado = "FALLO: " + error.message;
+    logEstado = "Fallo: " + error.message;
+    vistaPrevia = "ERROR CRÍTICO: " + error.message;
   } finally {
     await browser.close();
   }
 }
 
-// Escanear cada 10 minutos
-setInterval(escaneoMVP, 600000);
-escaneoMVP();
+setInterval(escaneoRapido, 600000);
+escaneoRapido();
 
 app.get('/', (req, res) => {
   res.send(`
-    <body style="font-family:monospace; background:#000; color:#0f0; padding:20px;">
-      <h2>Monitor MVP (Lectura de Texto)</h2>
-      <p><strong>Estado:</strong> ${logEstado}</p>
+    <body style="background:#111; color:#0f0; font-family:monospace; padding:20px;">
+      <h3>Diagnóstico de Monitor (MVP)</h3>
+      <p>Estado actual: <strong>${logEstado}</strong></p>
       <hr>
-      <pre style="white-space: pre-wrap; color:#ccc; font-size:12px;">
-        ${textoCapturado}
-      </pre>
-      <script>setTimeout(() => location.reload(), 30000);</script>
+      <pre style="white-space:pre-wrap; background:#000; padding:10px; border:1px solid #333;">${vistaPrevia}</pre>
+      <script>setTimeout(() => location.reload(), 20000);</script>
     </body>
   `);
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('MVP Online'));
+app.listen(PORT, '0.0.0.0', () => console.log('MVP funcionando'));
