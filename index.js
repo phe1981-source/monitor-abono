@@ -58,20 +58,21 @@ async function cicloAgileEstructurado() {
     logEstado = "Captura 2: Después del login...";
     imgDespues = await page.screenshot({ encoding: 'base64' });
 
-// 7. AFTER PICTURE, COUNT VENUES (Con attesa caricamento)
-    logEstado = "Contando eventi...";
+// 7. AFTER PICTURE, COUNT VENUES (Conteo real sin filtros de contenido)
+    logEstado = "Contando eventos reales...";
     const frameElement = await page.$('iframe');
     if (frameElement) {
       const frame = await frameElement.contentFrame();
       
-      // Aspettiamo che almeno un titolo sia visibile prima di contare
-      await frame.waitForSelector('.tribe-events-list-event-title', { timeout: 15000 }).catch(() => console.log("Timeout attesa titoli"));
+      // Esperamos a que la cartelera cargue los elementos visuales
+      await frame.waitForSelector('.tribe-events-list-event-title', { timeout: 15000 }).catch(() => {});
 
       totalEventos = await frame.evaluate(() => {
-        // Contiamo solo i titoli effettivamente renderizzati nella lista
-        const titoli = document.querySelectorAll('.tribe-events-list-event-title');
-        // Filtriamo per sicurezza quelli che hanno testo (evitiamo i select nascosti)
-        return Array.from(titoli).filter(t => t.innerText.trim().length > 0).length;
+        // Seleccionamos solo los títulos que tienen un enlace (esto descarta el menú de recintos)
+        // y que están dentro de los contenedores de la cartelera
+        const titulosCartelera = document.querySelectorAll('.tribe-events-list-event-title a, .event-wrapper h3 a');
+        
+        return titulosCartelera.length;
       });
     }
     
