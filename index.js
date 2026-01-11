@@ -58,16 +58,20 @@ async function cicloAgileEstructurado() {
     logEstado = "Captura 2: Después del login...";
     imgDespues = await page.screenshot({ encoding: 'base64' });
 
-    // 7. AFTER PICTURE, COUNT VENUES (Corrección para evitar los 393 del select)
-    logEstado = "Contando eventos visibles...";
+// 7. AFTER PICTURE, COUNT VENUES (Con attesa caricamento)
+    logEstado = "Contando eventi...";
     const frameElement = await page.$('iframe');
     if (frameElement) {
       const frame = await frameElement.contentFrame();
+      
+      // Aspettiamo che almeno un titolo sia visibile prima di contare
+      await frame.waitForSelector('.tribe-events-list-event-title', { timeout: 15000 }).catch(() => console.log("Timeout attesa titoli"));
+
       totalEventos = await frame.evaluate(() => {
-        // Solo contamos los títulos que están dentro de la lista de eventos real
-        // Esto ignora los <option> del menú desplegable que causaban el error de 393
-        const tarjetas = document.querySelectorAll('#tribe-events-photo-events .tribe-events-list-event-title, .tribe-events-list-event-wrapper .tribe-events-list-event-title');
-        return tarjetas.length;
+        // Contiamo solo i titoli effettivamente renderizzati nella lista
+        const titoli = document.querySelectorAll('.tribe-events-list-event-title');
+        // Filtriamo per sicurezza quelli che hanno testo (evitiamo i select nascosti)
+        return Array.from(titoli).filter(t => t.innerText.trim().length > 0).length;
       });
     }
     
