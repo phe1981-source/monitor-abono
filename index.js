@@ -52,20 +52,22 @@ async function cicloAgileEstructurado() {
 
     // 6. PICTURE AFTER LOGIN
     logEstado = "Accediendo a cartelera...";
-    // Intentamos ir a la cartelera directamente por si el login nos dejó en la home
     await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' }).catch(() => {});
-    await new Promise(r => setTimeout(r, 10000)); // Espera necesaria para el catálogo
+    await new Promise(r => setTimeout(r, 10000)); // Espera para carga de cartelera
     
     logEstado = "Captura 2: Después del login...";
     imgDespues = await page.screenshot({ encoding: 'base64' });
 
-    // 7. AFTER PICTURE, COUNT VENUES
-    logEstado = "Contando eventos...";
+    // 7. AFTER PICTURE, COUNT VENUES (Corrección para evitar los 393 del select)
+    logEstado = "Contando eventos visibles...";
     const frameElement = await page.$('iframe');
     if (frameElement) {
       const frame = await frameElement.contentFrame();
       totalEventos = await frame.evaluate(() => {
-        return document.querySelectorAll('.tribe-events-list-event-title').length;
+        // Solo contamos los títulos que están dentro de la lista de eventos real
+        // Esto ignora los <option> del menú desplegable que causaban el error de 393
+        const tarjetas = document.querySelectorAll('#tribe-events-photo-events .tribe-events-list-event-title, .tribe-events-list-event-wrapper .tribe-events-list-event-title');
+        return tarjetas.length;
       });
     }
     
@@ -73,14 +75,12 @@ async function cicloAgileEstructurado() {
 
   } catch (error) {
     logEstado = "Error en secuencia: " + error.message;
-    // Captura de pantalla del error si es posible
     try { if(!imgDespues) imgDespues = await page.screenshot({ encoding: 'base64' }); } catch(e) {}
   } finally {
     await browser.close();
   }
 }
 
-// Ejecutar cada 10 minutos
 setInterval(cicloAgileEstructurado, 600000);
 cicloAgileEstructurado();
 
@@ -90,17 +90,17 @@ app.get('/', (req, res) => {
       <h2 style="color:#B9C800;">Monitor Agile: Secuencia de 7 Pasos</h2>
       <div style="background:#111; padding:10px; border:1px solid #333; margin-bottom:20px;">
         <p>Estado: <strong>${logEstado}</strong></p>
-        <p style="font-size:2em;">Eventos: <span style="color:#B9C800;">${totalEventos}</span></p>
+        <p style="font-size:2.5em; margin:10px 0;">Eventos: <span style="color:#B9C800;">${totalEventos}</span></p>
       </div>
       
       <div style="display:flex; justify-content:center; gap:10px; flex-wrap:wrap;">
         <div style="flex:1; min-width:400px;">
-          <h3>1. Foto Antes</h3>
-          ${imgAntes ? `<img src="data:image/png;base64,${imgAntes}" style="width:100%; border:2px solid #444;">` : "<p>Cargando...</p>"}
+          <h3 style="color:#666;">1. Foto Antes (Login/Cookies)</h3>
+          ${imgAntes ? `<img src="data:image/png;base64,${imgAntes}" style="width:100%; border:2px solid #444; border-radius:8px;">` : "<p>Cargando...</p>"}
         </div>
         <div style="flex:1; min-width:400px;">
-          <h3>2. Foto Después</h3>
-          ${imgDespues ? `<img src="data:image/png;base64,${imgDespues}" style="width:100%; border:2px solid #B9C800;">` : "<p>Cargando...</p>"}
+          <h3 style="color:#B9C800;">2. Foto Después (Cartelera)</h3>
+          ${imgDespues ? `<img src="data:image/png;base64,${imgDespues}" style="width:100%; border:2px solid #B9C800; border-radius:8px;">` : "<p>Cargando...</p>"}
         </div>
       </div>
       <script>setTimeout(() => location.reload(), 20000);</script>
