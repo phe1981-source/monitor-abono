@@ -6,9 +6,9 @@ const USER = 'phe1981@gmail.com';
 const PASS = 'fAsHaMp@gZie3g@';
 
 // Variables Globales
-let listaAnterior = [];
-let listaActual = [];
-let historialNovedades = []; // Guardará cada detección de forma independiente
+let listaBrutaSinFiltrar = []; // Para el counter principal
+let listaLimpia = [];          // Para la tabla de abajo
+let historialNovedades = []; 
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Esperando primer ciclo...";
 
@@ -56,35 +56,34 @@ async function iniciarMonitor() {
             .filter(texto => texto !== "" && texto !== "-- Seleccione --");
         });
 
-        listaActual = [...new Set(data)];
+        // ACTUALIZACIÓN DE LISTAS
+        const anteriorParaComparar = [...listaLimpia];
+        
+        listaBrutaSinFiltrar = data; // COUNTER 1: Todo lo que lee el bot
+        listaLimpia = [...new Set(data)].sort(); // LISTA ABAJO: Sin duplicados
+        
         const ahoraTimestamp = Date.now();
         const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-        if (listaAnterior.length > 0) {
-          // Detectar qué hay nuevo con respecto a la lectura de hace unos minutos
-          const detectadosAhora = listaActual.filter(item => !listaAnterior.includes(item));
+        // Lógica de Alertas (basada en nombres únicos para no duplicar alarmas)
+        if (anteriorParaComparar.length > 0) {
+          const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.includes(item));
 
-          // OPCIÓN 1: Publicar cada cambio de forma independiente
           detectadosAhora.forEach(nombre => {
-            // Solo evitamos añadirlo si ya se añadió en el MISMO minuto (para evitar ruidos de refresco)
             const yaRegistradoMismoMinuto = historialNovedades.some(h => h.nombre === nombre && h.hora === ahoraHora);
-            
             if (!yaRegistradoMismoMinuto) {
               historialNovedades.unshift({
                 nombre: nombre,
                 hora: ahoraHora,
-                timestamp: ahoraTimestamp,
-                esReaparicion: listaAnterior.length > 0 && !listaAnterior.includes(nombre) 
+                timestamp: ahoraTimestamp
               });
             }
           });
         }
 
-        // Limpiar alertas de más de 12 horas
         const doceHorasEnMs = 12 * 60 * 60 * 1000;
         historialNovedades = historialNovedades.filter(h => (ahoraTimestamp - h.timestamp) < doceHorasEnMs);
 
-        listaAnterior = [...listaActual];
         ultimaActualizacion = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       }
 
@@ -105,40 +104,58 @@ iniciarMonitor();
 app.get('/', (req, res) => {
   res.send(`
     <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
-      <div style="max-width:850px; margin:auto; border:2px solid #333; padding:20px; border-radius:15px; background:#0a0a0a;">
+      <div style="max-width:900px; margin:auto; border:2px solid #333; padding:25px; border-radius:15px; background:#0a0a0a;">
         
         <header style="text-align:center; margin-bottom:30px;">
-          <h1 style="color:#B9C800; margin:0;">MONITOR AGILE</h1>
-          <p style="color:#666; margin:5px 0;">Última lectura: ${ultimaActualizacion}</p>
-          <div style="font-size:4em; font-weight:bold; color:#B9C800; margin:10px 0;">${listaActual.length} <span style="font-size:0.3em; color:#444; font-weight:normal;">eventos únicos</span></div>
+          <h1 style="color:#B9C800; margin:0; letter-spacing:1px;">MONITOR AGILE</h1>
+          <p style="color:#666; margin:5px 0;">Última sincronización: ${ultimaActualizacion}</p>
+          
+          <div style="font-size:5em; font-weight:bold; color:#B9C800; margin:5px 0;">
+            ${listaBrutaSinFiltrar.length === 0 ? '<span style="font-size:0.4em; color:#444;">CARGANDO...</span>' : listaBrutaSinFiltrar.length}
+          </div>
+          <div style="color:#555; text-transform:uppercase; font-size:0.8em; letter-spacing:2px;">Total Eventos Leídos (Bruto)</div>
         </header>
 
-        <section style="margin-top:20px;">
-          <div style="background:#111; border:1px solid #222; padding:20px; border-radius:12px;">
-            <h3 style="color:#eee; margin-top:0; border-bottom:1px solid #333; padding-bottom:10px;">
-              HISTORIAL DE ALERTAS (12H)
-            </h3>
-            
-            ${historialNovedades.length > 0 ? `
-              <div style="max-height:500px; overflow-y:auto;">
+        <section style="margin-bottom:30px;">
+          <div style="background:#111; border:1px solid #ff4400; padding:15px; border-radius:12px;">
+            <h3 style="color:#ff4400; margin-top:0; font-size:0.9em; letter-spacing:1px;">HISTORIAL DE ALERTAS (ÚLTIMAS 12H)</h3>
+            <div style="max-height:250px; overflow-y:auto; font-size:0.9em;">
+              ${historialNovedades.length > 0 ? `
                 <table style="width:100%; border-collapse:collapse;">
                   ${historialNovedades.map(h => `
                     <tr style="border-bottom:1px solid #222;">
-                      <td style="padding:12px 5px; color:#ffbb00; font-weight:bold; width:80px;">[${h.hora}]</td>
-                      <td style="padding:12px 5px; color:#eee;">
-                         ${h.nombre} 
-                         <span style="font-size:0.7em; background:#332200; color:#ff9900; padding:2px 6px; border-radius:4px; margin-left:10px; border:1px solid #553300;">NUEVA CARGA</span>
-                      </td>
+                      <td style="padding:10px 5px; color:#ffbb00; font-weight:bold; width:70px;">[${h.hora}]</td>
+                      <td style="padding:10px 5px; color:#eee;">${h.nombre} <span style="font-size:0.7em; color:#ff4400; border:1px solid #ff4400; padding:1px 4px; border-radius:3px; margin-left:10px;">NUEVO</span></td>
                     </tr>
                   `).join('')}
                 </table>
-              </div>
-            ` : '<p style="color:#444; text-align:center; padding:20px;">Esperando novedades...</p>'}
+              ` : '<p style="color:#333; text-align:center;">No hay alertas en las últimas 12h.</p>'}
+            </div>
           </div>
         </section>
 
-        <footer style="margin-top:30px; font-size:0.8em; color:#444; text-align:center;">
-          <p>Estado: ${logEstado} | Jitter activo | Persistencia: 12h</p>
+        <section>
+          <div style="background:#0a0a0a; border:1px solid #333; padding:15px; border-radius:12px;">
+            <h3 style="color:#B9C800; margin-top:0; font-size:0.9em; letter-spacing:1px;">LISTADO DE EVENTOS ÚNICOS (${listaLimpia.length})</h3>
+            <div style="max-height:500px; overflow-y:auto; font-size:0.85em; border-top:1px solid #222;">
+              <table style="width:100%; border-collapse:collapse;">
+                <tbody>
+                  ${listaLimpia.map((evento, index) => `
+                    <tr style="border-bottom:1px solid #1a1a1a;">
+                      <td style="padding:8px 5px; color:#444; width:30px;">${index + 1}</td>
+                      <td style="padding:8px 5px; color:#ccc;">${evento}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+              ${listaLimpia.length === 0 ? '<p style="color:#333; text-align:center; padding:20px;">Esperando datos del escáner...</p>' : ''}
+            </div>
+          </div>
+        </section>
+
+        <footer style="margin-top:30px; padding-top:15px; border-top:1px solid #222; color:#444; font-size:0.75em; display:flex; justify-content:space-between;">
+          <span>Estado: ${logEstado}</span>
+          <span>Jitter: 1-5 min | Persistencia: 12h</span>
         </footer>
 
       </div>
