@@ -24,9 +24,9 @@ async function cicloAgileEstructurado() {
     logEstado = "Cargando página...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // 2. PICTURE BEFORE LOGIN
-    logEstado = "Captura 1: Antes del login...";
-    imgAntes = await page.screenshot({ encoding: 'base64' });
+// 2. PICTURE BEFORE LOGIN (Comentado por solicitud)
+    // logEstado = "Captura 1: Antes del login...";
+    // imgAntes = await page.screenshot({ encoding: 'base64' });
 
     // 3. MANAGER COOKIES
     logEstado = "Gestionando cookies...";
@@ -50,13 +50,16 @@ async function cicloAgileEstructurado() {
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => console.log("Navegación lenta, continuando..."))
     ]);
 
-    // 6. PICTURE AFTER LOGIN
+// 6. NAVEGACIÓN A CARTELERA (Necesario para contar)
     logEstado = "Accediendo a cartelera...";
-    await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' }).catch(() => {});
-    await new Promise(r => setTimeout(r, 10000)); // Espera para carga de cartelera
+    // Navegamos a la URL donde están los espectáculos
+    await page.goto('https://compras.abonoteatro.com/teatro/', { 
+      waitUntil: 'domcontentloaded' 
+    }).catch(() => {});
     
-    logEstado = "Captura 2: Después del login...";
-    imgDespues = await page.screenshot({ encoding: 'base64' });
+    // Espera crucial: Si quitamos esto, el bot intenta contar 
+    // antes de que los eventos aparezcan en pantalla.
+    await new Promise(r => setTimeout(r, 10000));
 
 // 7. AFTER PICTURE, COUNT VENUES (Conteo real sin filtros de contenido)
     logEstado = "Contando eventos reales...";
