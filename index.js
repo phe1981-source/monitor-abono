@@ -9,8 +9,8 @@ let imgLogin = "";
 let imgResultado = "";
 let logEstado = "Esperando inicio...";
 
-async function escaneoVisual() {
-  console.log("Iniciando doble captura...");
+async function escaneoVisualCorregido() {
+  console.log("Iniciando escaneo con limpieza de cookies...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -19,61 +19,62 @@ async function escaneoVisual() {
   await page.setViewport({ width: 1280, height: 1000 });
 
   try {
-    // 1. ANTES DEL LOGIN
-    logEstado = "Capturando pantalla de Login...";
+    logEstado = "1. Cargando página de Login...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2' });
-    imgLogin = await page.screenshot({ encoding: 'base64' });
 
-    // 2. EJECUTAR LOGIN
-    logEstado = "Rellenando datos y entrando...";
+    // --- ACCIÓN: ELIMINAR COOKIES ---
+    logEstado = "Eliminando banner de cookies...";
+    await page.evaluate(() => {
+      const botones = Array.from(document.querySelectorAll('button'));
+      const btnAceptar = botones.find(b => b.innerText.includes('Aceptar cookies') || b.innerText.includes('Aceptar'));
+      if (btnAceptar) btnAceptar.click();
+    });
+    await new Promise(r => setTimeout(r, 2000)); // Espera a que el banner se quite
+
+    logEstado = "2. Rellenando credenciales...";
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
+    
+    // CAPTURA 1: Verificamos si el banner se fue y los datos están puestos
+    imgLogin = await page.screenshot({ encoding: 'base64' });
+
+    logEstado = "3. Pulsando Entrar...";
     await Promise.all([
       page.click('input[value="Entrar"].buyBtn'),
-      page.waitForNavigation({ waitUntil: 'networkidle2' })
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 })
     ]);
 
-    // 3. DESPUÉS DEL LOGIN (Cartelera)
-    logEstado = "Capturando resultado final...";
+    logEstado = "4. Accediendo a Cartelera...";
     await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2' });
-    await new Promise(r => setTimeout(r, 8000)); // Espera para que cargue el contenido
-    imgResultado = await page.screenshot({ encoding: 'base64' });
+    await new Promise(r => setTimeout(r, 10000)); // Espera para que cargue el catálogo AJAX
 
-    logEstado = "Escaneo completado.";
+    // CAPTURA 2: Resultado final
+    imgResultado = await page.screenshot({ encoding: 'base64' });
+    logEstado = "Escaneo completado con éxito.";
 
   } catch (error) {
-    logEstado = "Error: " + error.message;
-    // Si hay error, capturamos lo que haya en pantalla en ese momento
+    logEstado = "Fallo: " + error.message;
+    // Si falla, sacamos captura de la pantalla de error
     imgResultado = await page.screenshot({ encoding: 'base64' });
   } finally {
     await browser.close();
   }
 }
 
-setInterval(escaneoVisual, 600000);
-escaneoVisual();
+setInterval(escaneoVisualCorregido, 600000);
+escaneoVisualCorregido();
 
 app.get('/', (req, res) => {
   res.send(`
-    <body style="background:#1a1a1a; color:#eee; font-family:sans-serif; padding:20px; text-align:center;">
-      <h2>Panel de Control Visual</h2>
+    <body style="background:#1a1a1a; color:#eee; font-family:sans-serif; text-align:center; padding:20px;">
+      <h2>Panel de Control Visual (Anti-Cookies)</h2>
       <p>Estado: <strong>${logEstado}</strong></p>
       <hr style="border:1px solid #333;">
-      
       <div style="display:flex; justify-content: space-around; flex-wrap: wrap; gap: 20px; margin-top:20px;">
         <div>
-          <h3>1. Antes del Login</h3>
-          ${imgLogin ? `<img src="data:image/png;base64,${imgLogin}" style="width:500px; border:3px solid #555;">` : "<p>Cargando...</p>"}
+          <h3>1. Intento de Login (Sin Banner)</h3>
+          ${imgLogin ? `<img src="data:image/png;base64,${imgLogin}" style="width:550px; border:3px solid #555;">` : "<p>Cargando...</p>"}
         </div>
         <div>
           <h3>2. Resultado / Cartelera</h3>
-          ${imgResultado ? `<img src="data:image/png;base64,${imgResultado}" style="width:500px; border:3px solid #B9C800;">` : "<p>Esperando login...</p>"}
-        </div>
-      </div>
-      <script>setTimeout(() => location.reload(), 20000);</script>
-    </body>
-  `);
-});
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Doble captura lista'));
+          ${imgResultado ? `<img src="
