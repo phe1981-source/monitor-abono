@@ -105,9 +105,14 @@ async function iniciarMonitor() {
           if (anteriorParaComparar.length > 0) {
             const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.some(old => old.nombre === item.nombre));
 
-            for (const item of detectadosAhora) {
-              let finalUrl = item.url;
-              if (item.url && !item.url.endsWith('#')) {
+            if (detectadosAhora.length > 0) {
+              // Solo si hay novedades reales, "apagamos" el rojo de las alertas anteriores
+              historialNovedades.forEach(h => h.nuevo = false);
+              console.log(`✨ ¡Novedades detectadas! Reseteando alertas previas y marcando las ${detectadosAhora.length} actuales.`);
+
+              for (const item of detectadosAhora) {
+                let finalUrl = item.url;
+                if (item.url && !item.url.endsWith('#')) {
                 console.log(`🔎 Buscando URL final para: ${item.nombre}`);
                 const newPage = await browser.newPage();
                 try {
