@@ -156,7 +156,24 @@ app.get('/', (req, res) => {
           <p>Estado: ${logEstado} | Refresco automático: 60s</p>
         </footer>
       </div>
-      <script>setTimeout(() => location.reload(), 60000);</script>
+      <script>
+        const currentAlerts = ${historialNovedades.length};
+        const lastAlerts = sessionStorage.getItem('lastAlertCount') || 0;
+
+        if (currentAlerts > lastAlerts) {
+          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          const oscillator = audioCtx.createOscillator();
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+          oscillator.connect(audioCtx.destination);
+          oscillator.start();
+          setTimeout(() => oscillator.stop(), 200);
+        }
+
+        sessionStorage.setItem('lastAlertCount', currentAlerts);
+
+        setTimeout(() => location.reload(), 60000);
+      </script>
     </body>
   `);
 });
