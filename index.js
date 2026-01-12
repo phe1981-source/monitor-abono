@@ -3,7 +3,7 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS;
+const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@'; // Usa variable de entorno
 
 let listaBruta = []; 
 let listaLimpia = []; 
@@ -28,15 +28,11 @@ async function iniciarMonitor() {
   });
   
   const page = await browser.newPage();
-  // Imitar un navegador real
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   await page.setViewport({ width: 1280, height: 1000 });
 
   try {
     logEstado = "Intentando Login...";
-    console.log("🔑 Accediendo a login...");
-    
-    // Subimos el timeout a 90 segundos y usamos domcontentloaded
     await page.goto('https://compras.abonoteatro.com/login/', { 
       waitUntil: 'domcontentloaded', 
       timeout: 90000 
@@ -50,7 +46,6 @@ async function iniciarMonitor() {
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
     
-    // Usamos Promise.all para asegurar que el click y la navegación se gestionen juntos
     await Promise.all([
       page.click('input[value="Entrar"].buyBtn'),
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 90000 })
@@ -60,17 +55,12 @@ async function iniciarMonitor() {
 
     while (true) {
       logEstado = "Escaneando cartelera...";
-      console.log("🔍 Escaneando...");
-
-      // Resetear estado 'nuevo' de alertas antiguas
-      historialNovedades.forEach(h => h.nuevo = false);
-
+      
       await page.goto('https://compras.abonoteatro.com/teatro/', { 
         waitUntil: 'domcontentloaded', 
         timeout: 90000 
       }).catch(() => {});
       
-      // Espera de seguridad para el iframe
       await new Promise(r => setTimeout(r, 20000)); 
 
       const frameElement = await page.$('iframe');
@@ -79,7 +69,7 @@ async function iniciarMonitor() {
         const data = await frame.evaluate(() => {
           const elementos = document.querySelectorAll('.tribe-events-list-event-title a, h3 a');
           const options = document.querySelectorAll('#select_recinto_event option');
-
+          
           const fromLinks = Array.from(elementos).map(el => ({
             nombre: el.innerText.trim(),
             url: el.href
@@ -107,20 +97,26 @@ async function iniciarMonitor() {
 
           if (anteriorParaComparar.length > 0) {
             const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.some(old => old.nombre === item.nombre));
-            detectadosAhora.forEach(item => {
-              historialNovedades.unshift({
-                nombre: item.nombre,
-                url: item.url,
-                hora: ahoraHora,
-                timestamp: ahoraTimestamp,
-                nuevo: true
+            
+            // LÓGICA DE PERSISTENCIA: Solo reseteamos si hay algo nuevo de verdad
+            if (detectadosAhora.length > 0) {
+              historialNovedades.forEach(h => h.nuevo = false); // Lo anterior deja de ser gigante
+              
+              detectadosAhora.forEach(item => {
+                historialNovedades.unshift({
+                  nombre: item.nombre,
+                  url: item.url,
+                  hora: ahoraHora,
+                  timestamp: ahoraTimestamp,
+                  nuevo: true // Este se queda ROJO GIGANTE hasta que entre otra cosa en el futuro
+                });
               });
-            });
+            }
           }
 
           historialNovedades = historialNovedades.filter(h => (ahoraTimestamp - h.timestamp) < (12 * 60 * 60 * 1000));
           ultimaActualizacion = new Date().toLocaleTimeString('es-ES');
-          console.log(`📊 Lectura exitosa: ${listaBruta.length} eventos.`);
+          console.log(`📊 Escaneo exitoso: ${listaBruta.length} eventos.`);
         }
       }
 
@@ -133,8 +129,7 @@ async function iniciarMonitor() {
   } catch (error) {
     console.log("❌ ERROR:", error.message);
     logEstado = "Error de conexión. Reintentando...";
-    await browser.close();
-    // Reintento en 30 segundos
+    try { await browser.close(); } catch(e) {}
     setTimeout(iniciarMonitor, 30000); 
   }
 }
@@ -154,23 +149,22 @@ app.get('/', (req, res) => {
 
         <section style="margin-bottom:30px;">
           <div style="background:#111; border:1px solid #ff4400; padding:15px; border-radius:12px;">
-            <h3 style="color:#ff4400; margin-top:0;">🔔 ALERTAS 12H (${historialNovedades.length})</h3>
-            <div style="max-height:150px; overflow-y:auto;">
+            <h3 style="color:#ff4400; margin-top:0;">🔔 ÚLTIMAS ALERTAS (12H)</h3>
+            <div style="max-height:200px; overflow-y:auto;">
               ${historialNovedades.length > 0 ? `
                 <table style="width:100%; text-align:left;">
                   ${historialNovedades.map(h => {
                     const style = h.nuevo ? 'color: #ff0000; font-size: 1.8em; font-weight: bold;' : 'color: orange; font-size: 1em; font-weight: normal;';
-                    const link = `<a href="${h.url}" target="_blank" style="text-decoration:none; ${style}">${h.nombre}</a>`;
-                    return `<tr style="border-bottom:1px solid #222;"><td style="color:#ffbb00; width:80px;">[${h.hora}]</td><td>${link}</td></tr>`;
+                    return `<tr style="border-bottom:1px solid #222;"><td style="color:#ffbb00; width:80px;">[${h.hora}]</td><td><a href="${h.url}" target="_blank" style="text-decoration:none; ${style}">${h.nombre}</a></td></tr>`;
                   }).join('')}
-                </table>` : '<p style="color:#333;">Sin novedades.</p>'}
+                </table>` : '<p style="color:#333;">Esperando novedades...</p>'}
             </div>
           </div>
         </section>
 
         <section>
           <div style="background:#050505; border:1px solid #333; padding:15px; border-radius:12px;">
-            <h3 style="color:#B9C800; margin-top:0;">📋 CARTELERA ÚNICA (${listaLimpia.length})</h3>
+            <h3 style="color:#B9C800; margin-top:0;">📋 CARTELERA ACTUAL (${listaLimpia.length})</h3>
             <div style="max-height:350px; overflow-y:auto;">
               <table style="width:100%; text-align:left;">
                 ${listaLimpia.map((ev, i) => `<tr style="border-bottom:1px solid #111;"><td style="color:#444; width:30px;">${i+1}</td><td style="color:#ccc;"><a href="${ev.url}" target="_blank" style="color:#ccc; text-decoration:none;">${ev.nombre}</a></td></tr>`).join('')}
@@ -180,25 +174,22 @@ app.get('/', (req, res) => {
         </section>
 
         <footer style="margin-top:25px; color:#444; font-size:0.8em; text-align:center;">
-          <p>Estado: ${logEstado} | Refresco automático: 60s</p>
+          <p>Estado: ${logEstado} | Recarga página cada: 60s</p>
         </footer>
       </div>
       <script>
         const currentAlerts = ${historialNovedades.length};
         const lastAlerts = sessionStorage.getItem('lastAlertCount') || 0;
-
         if (currentAlerts > lastAlerts) {
           const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
           const oscillator = audioCtx.createOscillator();
           oscillator.type = 'sine';
-          oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+          oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
           oscillator.connect(audioCtx.destination);
           oscillator.start();
           setTimeout(() => oscillator.stop(), 200);
         }
-
         sessionStorage.setItem('lastAlertCount', currentAlerts);
-
         setTimeout(() => location.reload(), 60000);
       </script>
     </body>
