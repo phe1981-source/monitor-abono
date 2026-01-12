@@ -3,7 +3,7 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = 'fAsHaMp@gZie3g@';
+const PASS = process.env.ABONO_PASS;
 
 let listaBruta = []; 
 let listaLimpia = []; 
