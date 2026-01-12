@@ -28,7 +28,6 @@ async function iniciarMonitor() {
   });
   
   const page = await browser.newPage();
-  // Imitar un navegador real
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
   await page.setViewport({ width: 1280, height: 1000 });
 
@@ -36,7 +35,6 @@ async function iniciarMonitor() {
     logEstado = "Intentando Login...";
     console.log("🔑 Accediendo a login...");
     
-    // Subimos el timeout a 90 segundos y usamos domcontentloaded
     await page.goto('https://compras.abonoteatro.com/login/', { 
       waitUntil: 'domcontentloaded', 
       timeout: 90000 
@@ -50,7 +48,6 @@ async function iniciarMonitor() {
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
     
-    // Usamos Promise.all para asegurar que el click y la navegación se gestionen juntos
     await Promise.all([
       page.click('input[value="Entrar"].buyBtn'),
       page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 90000 })
@@ -67,7 +64,6 @@ async function iniciarMonitor() {
         timeout: 90000 
       }).catch(() => {});
       
-      // Espera de seguridad para el iframe
       await new Promise(r => setTimeout(r, 20000)); 
 
       const frameElement = await page.$('iframe');
@@ -106,50 +102,44 @@ async function iniciarMonitor() {
             const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.some(old => old.nombre === item.nombre));
             
             if (detectadosAhora.length > 0) {
-              // Solo si hay novedades reales, "apagamos" el rojo de las alertas anteriores
               historialNovedades.forEach(h => h.nuevo = false);
               console.log(`✨ ¡Novedades detectadas! Reseteando alertas previas y marcando las ${detectadosAhora.length} actuales.`);
               
               for (const item of detectadosAhora) {
                 let finalUrl = item.url;
                 if (item.url && !item.url.endsWith('#')) {
-                console.log(`🔎 Buscando URL final para: ${item.nombre}`);
-                const newPage = await browser.newPage();
-                try {
-                  await newPage.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                  await newPage.waitForSelector('a.buyBtn', { timeout: 10000 });
+                  console.log(`🔎 Buscando URL final para: ${item.nombre}`);
+                  const newPage = await browser.newPage();
+                  try {
+                    await newPage.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                    await newPage.waitForSelector('a.buyBtn', { timeout: 10000 });
 
-                  const correctUrl = await newPage.evaluate(() => {
-                    const comprarBtns = Array.from(document.querySelectorAll('a.buyBtn'));
-                    if (comprarBtns.length > 1) {
-                      return comprarBtns[1].href;
-                    }
-                    if (comprarBtns.length === 1) {
-                      return comprarBtns[0].href;
-                    }
-                    return null;
-                  });
+                    const correctUrl = await newPage.evaluate(() => {
+                      const comprarBtns = Array.from(document.querySelectorAll('a.buyBtn'));
+                      if (comprarBtns.length > 1) return comprarBtns[1].href;
+                      if (comprarBtns.length === 1) return comprarBtns[0].href;
+                      return null;
+                    });
 
-                  if (correctUrl) {
-                    finalUrl = correctUrl;
-                    console.log(`✅ URL final encontrada: ${finalUrl}`);
-                  } else {
-                    console.log(`⚠️ No se encontró el botón "Comprar" secundario.`);
+                    if (correctUrl) {
+                      finalUrl = correctUrl;
+                      console.log(`✅ URL final encontrada: ${finalUrl}`);
+                    }
+                  } catch (e) {
+                    console.log(`❌ Error al buscar URL para ${item.nombre}: ${e.message}`);
+                  } finally {
+                    await newPage.close();
                   }
-                } catch (e) {
-                  console.log(`❌ Error al buscar URL para ${item.nombre}: ${e.message}`);
-                } finally {
-                  await newPage.close();
                 }
-              }
 
-              historialNovedades.unshift({ 
-                nombre: item.nombre, 
-                url: finalUrl, 
-                hora: ahoraHora, 
-                timestamp: ahoraTimestamp, 
-                nuevo: true 
-              });
+                historialNovedades.unshift({ 
+                  nombre: item.nombre, 
+                  url: finalUrl, 
+                  hora: ahoraHora, 
+                  timestamp: ahoraTimestamp, 
+                  nuevo: true 
+                });
+              }
             }
           }
 
@@ -168,8 +158,7 @@ async function iniciarMonitor() {
   } catch (error) {
     console.log("❌ ERROR:", error.message);
     logEstado = "Error de conexión. Reintentando...";
-    await browser.close();
-    // Reintento en 30 segundos
+    try { await browser.close(); } catch (e) {}
     setTimeout(iniciarMonitor, 30000); 
   }
 }
@@ -225,28 +214,22 @@ app.get('/', (req, res) => {
         const audioOverlay = document.getElementById('audio-overlay');
         const isAudioEnabled = () => sessionStorage.getItem('audioEnabled') === 'true';
 
-        // When user clicks the overlay, enable audio and hide the overlay
         audioOverlay.addEventListener('click', () => {
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                // Play a test sound to confirm
                 const oscillator = audioCtx.createOscillator();
                 oscillator.type = 'square';
                 oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
                 oscillator.connect(audioCtx.destination);
                 oscillator.start();
                 setTimeout(() => oscillator.stop(), 150);
-                
-                // Save preference and hide overlay
                 sessionStorage.setItem('audioEnabled', 'true');
                 audioOverlay.style.display = 'none';
             } catch (e) {
                 console.error('Could not enable audio:', e);
-                audioOverlay.textContent = 'Audio Failed';
             }
-        }, { once: true }); // Important: run this listener only once
+        }, { once: true });
 
-        // Hide overlay if audio is already enabled from a previous interaction in the same session
         if (isAudioEnabled()) {
             audioOverlay.style.display = 'none';
         }
@@ -255,12 +238,11 @@ app.get('/', (req, res) => {
         const lastAlerts = sessionStorage.getItem('lastAlertCount') || 0;
 
         if (currentAlerts > lastAlerts) {
-            // Only play sound if user has enabled it
             if (isAudioEnabled()) {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 const oscillator = audioCtx.createOscillator();
                 oscillator.type = 'sine';
-                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
                 oscillator.connect(audioCtx.destination);
                 oscillator.start();
                 setTimeout(() => oscillator.stop(), 200);
