@@ -3,7 +3,7 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = 'fAsHaMp@gZie3g@';
+const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@';
 
 let listaBruta = []; 
 let listaLimpia = []; 
@@ -61,9 +61,6 @@ async function iniciarMonitor() {
     while (true) {
       logEstado = "Escaneando cartelera...";
       console.log("🔍 Escaneando...");
-
-      // Resetear estado 'nuevo' de alertas antiguas
-      historialNovedades.forEach(h => h.nuevo = false);
 
       await page.goto('https://compras.abonoteatro.com/teatro/', { 
         waitUntil: 'domcontentloaded', 
@@ -214,21 +211,17 @@ app.get('/', (req, res) => {
 
         <footer style="margin-top:25px; color:#444; font-size:0.8em; text-align:center;">
           <p>Estado: ${logEstado} | Refresco automático: 60s</p>
-          <p><button id="audio-toggle" style="background:#333; color:#fff; border:1px solid #555; padding:5px 10px; border-radius:5px; cursor:pointer;">Enable Sound</button></p>
         </footer>
       </div>
+      <div id="audio-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); color: white; display: flex; justify-content: center; align-items: center; z-index: 1000; cursor: pointer; font-size: 2em; text-align: center;">
+        Click para activar el Monitor y el Sonido
+      </div>
       <script>
-        const audioToggleButton = document.getElementById('audio-toggle');
+        const audioOverlay = document.getElementById('audio-overlay');
         const isAudioEnabled = () => sessionStorage.getItem('audioEnabled') === 'true';
 
-        // Set initial button state from session storage
-        if (isAudioEnabled()) {
-            audioToggleButton.textContent = 'Sound Enabled';
-            audioToggleButton.disabled = true;
-        }
-
-        // When user clicks the button, enable audio for the session
-        audioToggleButton.addEventListener('click', () => {
+        // When user clicks the overlay, enable audio and hide the overlay
+        audioOverlay.addEventListener('click', () => {
             try {
                 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                 // Play a test sound to confirm
@@ -239,15 +232,19 @@ app.get('/', (req, res) => {
                 oscillator.start();
                 setTimeout(() => oscillator.stop(), 150);
 
-                // Save preference and update button state
+                // Save preference and hide overlay
                 sessionStorage.setItem('audioEnabled', 'true');
-                audioToggleButton.textContent = 'Sound Enabled';
-                audioToggleButton.disabled = true;
+                audioOverlay.style.display = 'none';
             } catch (e) {
                 console.error('Could not enable audio:', e);
-                audioToggleButton.textContent = 'Audio Failed';
+                audioOverlay.textContent = 'Audio Failed';
             }
-        });
+        }, { once: true }); // Important: run this listener only once
+
+        // Hide overlay if audio is already enabled from a previous interaction in the same session
+        if (isAudioEnabled()) {
+            audioOverlay.style.display = 'none';
+        }
 
         const currentAlerts = ${historialNovedades.length};
         const lastAlerts = sessionStorage.getItem('lastAlertCount') || 0;
