@@ -62,6 +62,9 @@ async function iniciarMonitor() {
       logEstado = "Escaneando cartelera...";
       console.log("🔍 Escaneando...");
 
+      // Resetear estado 'nuevo' de alertas antiguas
+      historialNovedades.forEach(h => h.nuevo = false);
+
       await page.goto('https://compras.abonoteatro.com/teatro/', { 
         waitUntil: 'domcontentloaded', 
         timeout: 90000 
@@ -74,24 +77,44 @@ async function iniciarMonitor() {
       if (frameElement) {
         const frame = await frameElement.contentFrame();
         const data = await frame.evaluate(() => {
-          const elementos = document.querySelectorAll('.tribe-events-list-event-title a, h3 a, #select_recinto_event option');
-          return Array.from(elementos)
-            .map(el => el.innerText.trim())
-            .filter(texto => texto !== "" && texto !== "-- Seleccione --");
+          const elementos = document.querySelectorAll('.tribe-events-list-event-title a, h3 a');
+          const options = document.querySelectorAll('#select_recinto_event option');
+
+          const fromLinks = Array.from(elementos).map(el => ({
+            nombre: el.innerText.trim(),
+            url: el.href
+          }));
+
+          const fromOptions = Array.from(options).map(el => ({
+            nombre: el.innerText.trim(),
+            url: '#'
+          })).filter(item => item.nombre !== "" && item.nombre !== "-- Seleccione --");
+
+          return [...fromLinks, ...fromOptions].filter(item => item.nombre);
         });
 
         if (data && data.length > 0) {
           const anteriorParaComparar = [...listaLimpia];
-          listaBruta = data; 
-          listaLimpia = [...new Set(data)].sort(); 
+          listaBruta = data;
+
+          const uniqueData = data.filter((item, index, self) =>
+            item.nombre && index === self.findIndex((t) => t.nombre === item.nombre)
+          );
+          listaLimpia = uniqueData.sort((a, b) => a.nombre.localeCompare(b.nombre));
           
           const ahoraTimestamp = Date.now();
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
           if (anteriorParaComparar.length > 0) {
-            const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.includes(item));
-            detectadosAhora.forEach(nombre => {
-              historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp });
+            const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.some(old => old.nombre === item.nombre));
+            detectadosAhora.forEach(item => {
+              historialNovedades.unshift({
+                nombre: item.nombre,
+                url: item.url,
+                hora: ahoraHora,
+                timestamp: ahoraTimestamp,
+                nuevo: true
+              });
             });
           }
 
@@ -135,7 +158,11 @@ app.get('/', (req, res) => {
             <div style="max-height:150px; overflow-y:auto;">
               ${historialNovedades.length > 0 ? `
                 <table style="width:100%; text-align:left;">
-                  ${historialNovedades.map(h => `<tr style="border-bottom:1px solid #222;"><td style="color:#ffbb00; width:80px;">[${h.hora}]</td><td>${h.nombre}</td></tr>`).join('')}
+                  ${historialNovedades.map(h => {
+                    const style = h.nuevo ? 'color:red; font-size:1.1em; font-weight:bold;' : 'color:orange;';
+                    const link = `<a href="${h.url}" target="_blank" style="text-decoration:none; ${style}">${h.nombre}</a>`;
+                    return `<tr style="border-bottom:1px solid #222;"><td style="color:#ffbb00; width:80px;">[${h.hora}]</td><td>${link}</td></tr>`;
+                  }).join('')}
                 </table>` : '<p style="color:#333;">Sin novedades.</p>'}
             </div>
           </div>
@@ -146,7 +173,7 @@ app.get('/', (req, res) => {
             <h3 style="color:#B9C800; margin-top:0;">📋 CARTELERA ÚNICA (${listaLimpia.length})</h3>
             <div style="max-height:350px; overflow-y:auto;">
               <table style="width:100%; text-align:left;">
-                ${listaLimpia.map((ev, i) => `<tr style="border-bottom:1px solid #111;"><td style="color:#444; width:30px;">${i+1}</td><td style="color:#ccc;">${ev}</td></tr>`).join('')}
+                ${listaLimpia.map((ev, i) => `<tr style="border-bottom:1px solid #111;"><td style="color:#444; width:30px;">${i+1}</td><td style="color:#ccc;"><a href="${ev.url}" target="_blank" style="color:#ccc; text-decoration:none;">${ev.nombre}</a></td></tr>`).join('')}
               </table>
             </div>
           </div>
