@@ -107,15 +107,48 @@ async function iniciarMonitor() {
 
           if (anteriorParaComparar.length > 0) {
             const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.some(old => old.nombre === item.nombre));
-            detectadosAhora.forEach(item => {
+
+            for (const item of detectadosAhora) {
+              let finalUrl = item.url;
+              if (item.url && !item.url.endsWith('#')) {
+                console.log(`🔎 Buscando URL final para: ${item.nombre}`);
+                const newPage = await browser.newPage();
+                try {
+                  await newPage.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+                  await newPage.waitForSelector('a.buyBtn', { timeout: 10000 });
+
+                  const correctUrl = await newPage.evaluate(() => {
+                    const comprarBtns = Array.from(document.querySelectorAll('a.buyBtn'));
+                    if (comprarBtns.length > 1) {
+                      return comprarBtns[1].href;
+                    }
+                    if (comprarBtns.length === 1) {
+                      return comprarBtns[0].href;
+                    }
+                    return null;
+                  });
+
+                  if (correctUrl) {
+                    finalUrl = correctUrl;
+                    console.log(`✅ URL final encontrada: ${finalUrl}`);
+                  } else {
+                    console.log(`⚠️ No se encontró el botón "Comprar" secundario.`);
+                  }
+                } catch (e) {
+                  console.log(`❌ Error al buscar URL para ${item.nombre}: ${e.message}`);
+                } finally {
+                  await newPage.close();
+                }
+              }
+
               historialNovedades.unshift({
                 nombre: item.nombre,
-                url: item.url,
+                url: finalUrl,
                 hora: ahoraHora,
                 timestamp: ahoraTimestamp,
                 nuevo: true
               });
-            });
+            }
           }
 
           historialNovedades = historialNovedades.filter(h => (ahoraTimestamp - h.timestamp) < (12 * 60 * 60 * 1000));
@@ -181,24 +214,58 @@ app.get('/', (req, res) => {
 
         <footer style="margin-top:25px; color:#444; font-size:0.8em; text-align:center;">
           <p>Estado: ${logEstado} | Refresco automático: 60s</p>
+          <p><button id="audio-toggle" style="background:#333; color:#fff; border:1px solid #555; padding:5px 10px; border-radius:5px; cursor:pointer;">Enable Sound</button></p>
         </footer>
       </div>
       <script>
+        const audioToggleButton = document.getElementById('audio-toggle');
+        const isAudioEnabled = () => sessionStorage.getItem('audioEnabled') === 'true';
+
+        // Set initial button state from session storage
+        if (isAudioEnabled()) {
+            audioToggleButton.textContent = 'Sound Enabled';
+            audioToggleButton.disabled = true;
+        }
+
+        // When user clicks the button, enable audio for the session
+        audioToggleButton.addEventListener('click', () => {
+            try {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                // Play a test sound to confirm
+                const oscillator = audioCtx.createOscillator();
+                oscillator.type = 'square';
+                oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+                oscillator.connect(audioCtx.destination);
+                oscillator.start();
+                setTimeout(() => oscillator.stop(), 150);
+
+                // Save preference and update button state
+                sessionStorage.setItem('audioEnabled', 'true');
+                audioToggleButton.textContent = 'Sound Enabled';
+                audioToggleButton.disabled = true;
+            } catch (e) {
+                console.error('Could not enable audio:', e);
+                audioToggleButton.textContent = 'Audio Failed';
+            }
+        });
+
         const currentAlerts = ${historialNovedades.length};
         const lastAlerts = sessionStorage.getItem('lastAlertCount') || 0;
 
         if (currentAlerts > lastAlerts) {
-          const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          const oscillator = audioCtx.createOscillator();
-          oscillator.type = 'sine';
-          oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
-          oscillator.connect(audioCtx.destination);
-          oscillator.start();
-          setTimeout(() => oscillator.stop(), 200);
+            // Only play sound if user has enabled it
+            if (isAudioEnabled()) {
+                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+                oscillator.connect(audioCtx.destination);
+                oscillator.start();
+                setTimeout(() => oscillator.stop(), 200);
+            }
         }
 
         sessionStorage.setItem('lastAlertCount', currentAlerts);
-
         setTimeout(() => location.reload(), 60000);
       </script>
     </body>
