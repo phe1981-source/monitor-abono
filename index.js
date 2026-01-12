@@ -159,7 +159,7 @@ app.get('/', (req, res) => {
               ${historialNovedades.length > 0 ? `
                 <table style="width:100%; text-align:left;">
                   ${historialNovedades.map(h => {
-                    const style = h.nuevo ? 'color:red; font-size:1.1em; font-weight:bold;' : 'color:orange;';
+                    const style = h.nuevo ? 'color:#ff0000; font-size:1.5em; font-weight:bold;' : 'color:orange;';
                     const link = `<a href="${h.url}" target="_blank" style="text-decoration:none; ${style}">${h.nombre}</a>`;
                     return `<tr style="border-bottom:1px solid #222;"><td style="color:#ffbb00; width:80px;">[${h.hora}]</td><td>${link}</td></tr>`;
                   }).join('')}
