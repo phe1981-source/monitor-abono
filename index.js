@@ -3,9 +3,10 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS; 
+const PASS = process.env.ABONO_PASS; // Configura esto en Render -> Environment
+
 if (!PASS) {
-  console.error("❌ ERROR: La variable ABONO_PASS no está configurada.");
+  console.error("❌ ERROR: Configura la variable ABONO_PASS en el panel de Render.");
 }
 
 app.use('/debug', express.static(__dirname));
@@ -17,7 +18,7 @@ let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Bot V3.1 - Login Robusto...");
+  console.log("🚀 Iniciando Bot V3.1.2 - Estable...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
@@ -27,23 +28,22 @@ async function iniciarMonitor() {
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   try {
-    logEstado = "Accediendo al login...";
+    logEstado = "Login...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 120000 });
     
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
-    
-    // Ejecutamos el click
     await page.click('input[value="Entrar"].buyBtn');
     
-    logEstado = "Validando credenciales...";
-    // En lugar de esperar navegación completa, esperamos que aparezca el iframe de la cartelera
+    // Esperamos confirmación del login
     await page.waitForSelector('iframe', { timeout: 90000 });
-
-    console.log("✅ Login confirmado mediante selector");
+    console.log("✅ Login OK");
+    
+    // RETARDO DE SEGURIDAD para evitar "Frame Detached"
+    await new Promise(r => setTimeout(r, 7000));
 
     while (true) {
-      logEstado = "Escaneando cartelera...";
+      logEstado = "Escaneando...";
       await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 120000 });
       
       const frameElement = await page.waitForSelector('iframe', { timeout: 60000 });
@@ -81,7 +81,7 @@ async function iniciarMonitor() {
                 }
               }
               historialNovedades.unshift({ nombre: nombre, hora: ahoraHora, nuevo: true });
-            } catch (e) { console.log("Error en click:", e.message); }
+            } catch (e) { console.log("Error novedad:", e.message); }
           }
         }
         listaLimpia = nombresActuales.map(n => ({ nombre: n }));
@@ -93,8 +93,8 @@ async function iniciarMonitor() {
       await new Promise(r => setTimeout(r, esperaMs));
     }
   } catch (error) {
-    console.log("❌ Error detectado:", error.message);
-    logEstado = "Reiniciando por error...";
+    console.log("❌ Error:", error.message);
+    logEstado = "Reiniciando...";
     if (browser) await browser.close();
     setTimeout(iniciarMonitor, 15000);
   }
@@ -111,11 +111,11 @@ app.get('/', (req, res) => {
   html += '</div>';
   html += '<h1 style="color:#B9C800; text-align:center; font-size:5em; margin:0;">' + listaLimpia.length + '</h1>';
   html += '<p style="text-align:center; color:#888;">' + logEstado + ' | Sincro: ' + ultimaActualizacion + '</p>';
-  html += '<h3 style="color:#00ff00;">🚀 LINKS DE COMPRA</h3>';
+  html += '<h3 style="color:#00ff00;">🚀 LINKS DIRECTOS</h3>';
   html += '<div style="background:#001a00; padding:15px; border-radius:10px; border:1px solid #00ff00; min-height:50px;">';
-  if (linksDirectos.length === 0) html += '<p style="text-align:center; color:#004400;">Buscando eventos nuevos...</p>';
+  if (linksDirectos.length === 0) html += '<p style="text-align:center; color:#004400;">Esperando novedades...</p>';
   linksDirectos.forEach(l => {
-    html += '<a href="' + l.url + '" target="_blank" style="display:block; color:#fff; background:#004d00; padding:12px; margin:5px 0; border-radius:8px; text-decoration:none; text-align:center; font-weight:bold; border:1px solid #00ff00;">' + l.nombre + ' [' + l.hora + ']</a>';
+    html += '<a href="' + l.url + '" target="_blank" style="display:block; color:#fff; background:#004d00; padding:10px; margin:5px 0; border-radius:8px; text-decoration:none; text-align:center;">' + l.nombre + '</a>';
   });
   html += '</div>';
   html += '<h3 style="color:#ff4400; margin-top:30px;">🔔 HISTORIAL</h3>';
@@ -124,16 +124,14 @@ app.get('/', (req, res) => {
   });
   html += '</div>';
   html += '<script>';
-  html += 'let sonidoActivado = sessionStorage.getItem("sonidoLocal") === "true";';
-  html += 'const btn = document.getElementById("btnSonido");';
-  html += 'function updateBtn() { btn.innerText = sonidoActivado ? "🔊 Sonido Activo" : "🔇 Activar Sonido"; btn.style.background = sonidoActivado ? "#00ff00" : "#444"; btn.style.color = sonidoActivado ? "#000" : "#fff"; }';
-  html += 'updateBtn();';
-  html += 'function toggleSonido() { sonidoActivado = !sonidoActivado; sessionStorage.setItem("sonidoLocal", sonidoActivado); updateBtn(); }';
-  html += 'if (' + hayNovedad + ' && sonidoActivado) { const ctx = new AudioContext(); const osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.start(); setTimeout(() => osc.stop(), 300); }';
-  html += 'setTimeout(() => location.reload(), 45000);';
+  html += 'let sA = sessionStorage.getItem("s") === "true"; const btn = document.getElementById("btnSonido");';
+  html += 'function uB() { btn.innerText = sA ? "🔊 Sonido Activo" : "🔇 Activar Sonido"; btn.style.background = sA ? "#00ff00" : "#444"; } uB();';
+  html += 'function toggleSonido() { sA = !sA; sessionStorage.setItem("s", sA); uB(); }';
+  html += 'if (' + hayNovedad + ' && sA) { const c = new AudioContext(); const o = c.createOscillator(); o.connect(c.destination); o.start(); setTimeout(() => o.stop(), 300); }';
+  html += 'setTimeout(() => location.reload(), 30000);';
   html += '</script></body>';
   res.send(html);
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Servidor activo en puerto ' + PORT));
+app.listen(PORT, '0.0.0.0', () => console.log('Puerto ' + PORT));
