@@ -3,7 +3,7 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@';
+const PASS = process.env.ABONO_PASS;
 
 app.use('/debug', express.static(__dirname));
 
@@ -14,7 +14,7 @@ let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Bot V2.5 - Interfaz sin fallos...");
+  console.log("🚀 Iniciando Bot V2.6 - Sonido Recuperado...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -26,7 +26,6 @@ async function iniciarMonitor() {
   try {
     logEstado = "Login (Espera 90s)...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 90000 });
-    
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
     await Promise.all([
@@ -91,7 +90,7 @@ async function iniciarMonitor() {
     }
   } catch (error) {
     console.log("❌ Error:", error.message);
-    logEstado = "Reiniciando por error...";
+    logEstado = "Reiniciando...";
     if (browser) await browser.close();
     setTimeout(iniciarMonitor, 15000);
   }
@@ -103,6 +102,12 @@ app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   let html = '<body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">';
   html += '<div style="max-width:800px; margin:auto; background:#111; padding:20px; border-radius:15px; border:1px solid #333;">';
+  
+  // Botón de Sonido
+  html += '<div style="text-align:right; margin-bottom:10px;">';
+  html += '<button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">🔇 Activar Sonido</button>';
+  html += '</div>';
+
   html += '<h1 style="color:#B9C800; text-align:center; font-size:5em; margin:0;">' + listaLimpia.length + '</h1>';
   html += '<p style="text-align:center; color:#888;">' + logEstado + ' | Sincro: ' + ultimaActualizacion + '</p>';
   
@@ -125,7 +130,33 @@ app.get('/', (req, res) => {
     html += '</div>';
   });
 
-  html += '</div><script>setTimeout(()=>location.reload(), 60000);</script></body>';
+  // Script de sonido corregido
+  html += '</div>';
+  html += '<script>';
+  html += 'let sonidoActivado = sessionStorage.getItem("sonidoLocal") === "true";';
+  html += 'const btn = document.getElementById("btnSonido");';
+  html += 'function updateBtn() {';
+  html += '  btn.innerText = sonidoActivado ? "🔊 Sonido Activo" : "🔇 Activar Sonido";';
+  html += '  btn.style.background = sonidoActivado ? "#00ff00" : "#444";';
+  html += '  btn.style.color = sonidoActivado ? "#000" : "#fff";';
+  html += '}';
+  html += 'updateBtn();';
+  html += 'function toggleSonido() {';
+  html += '  sonidoActivado = !sonidoActivado;';
+  html += '  sessionStorage.setItem("sonidoLocal", sonidoActivado);';
+  html += '  updateBtn();';
+  html += '}';
+  html += 'if (' + hayNovedad + ' && sonidoActivado) {';
+  html += '  const ctx = new (window.AudioContext || window.webkitAudioContext)();';
+  html += '  const osc = ctx.createOscillator();';
+  html += '  osc.connect(ctx.destination);';
+  html += '  osc.type = "sine";';
+  html += '  osc.frequency.setValueAtTime(880, ctx.currentTime);';
+  html += '  osc.start();';
+  html += '  setTimeout(() => osc.stop(), 200);';
+  html += '}';
+  html += 'setTimeout(() => location.reload(), 60000);';
+  html += '</script></body>';
   res.send(html);
 });
 
