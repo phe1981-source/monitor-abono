@@ -66,67 +66,68 @@ async function iniciarMonitor() {
 
         if (data && data.length > 0) {
           const nombresActuales = [...new Set(data)];
-          const anteriorNombres = listaLimpia.map(item => item.nombre);
-          const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
-          
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
           const ahoraTimestamp = Date.now();
 
-          if (detectadosAhora.length > 0) {
-            historialNovedades.forEach(h => h.nuevo = false);
-            console.log(`✨ ¡Nuevos eventos! Procesando ${detectadosAhora.length} URLs.`);
+          // --- LÓGICA DE PRIMERA LECTURA (EVITA ALERTAS FALSAS TRAS DEPLOY) ---
+          if (listaLimpia.length === 0) {
+            console.log(`📥 Inicializando base de datos con ${nombresActuales.length} eventos.`);
+            listaLimpia = nombresActuales.map(n => ({ nombre: n }));
+            ultimaActualizacion = ahoraHora;
+          } else {
+            // Comparación normal para buscar novedades
+            const anteriorNombres = listaLimpia.map(item => item.nombre);
+            const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
-            for (const nombre of detectadosAhora) {
-              // 1. Buscar botón en la página máster (iframe)
-              const handle = await frame.evaluateHandle((n) => {
-                const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
-                if (link) {
-                  const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
-                  return card ? card.querySelector('a.buyBtn') : null;
-                }
-              }, nombre);
+            if (detectadosAhora.length > 0) {
+              historialNovedades.forEach(h => h.nuevo = false);
+              console.log(`✨ ¡Novedades reales! Procesando ${detectadosAhora.length} URLs.`);
 
-              const btnComprarMaster = handle.asElement();
-              if (btnComprarMaster) {
-                try {
-                  // Preparamos captura de la primera ventana (Pop-up 1)
-                  const popup1Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
-                  await btnComprarMaster.click();
-                  const popup1 = await popup1Promise;
-
-                  if (popup1) {
-                    await popup1.waitForSelector('a.buyBtn', { timeout: 15000 }).catch(() => {});
-                    const botones = await popup1.$$('a.buyBtn');
-                    
-                    if (botones.length >= 2) {
-                      // 2. Click en el SEGUNDO botón "Comprar" del pop-up
-                      const popup2Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
-                      await botones[1].click(); 
-                      const popup2 = await popup2Promise;
-
-                      if (popup2) {
-                        // 3. Capturar URL de la ventana final
-                        await new Promise(r => setTimeout(r, 4000));
-                        const urlFinal = popup2.url();
-                        
-                        linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: ahoraTimestamp });
-                        await popup2.close();
-                      }
-                    }
-                    await popup1.close();
+              for (const nombre of detectadosAhora) {
+                const handle = await frame.evaluateHandle((n) => {
+                  const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
+                  if (link) {
+                    const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
+                    return card ? card.querySelector('a.buyBtn') : null;
                   }
-                } catch (e) { console.log(`Error en clics para ${nombre}: ${e.message}`); }
-              }
+                }, nombre);
 
-              historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp, nuevo: true });
+                const btnComprarMaster = handle.asElement();
+                if (btnComprarMaster) {
+                  try {
+                    const popup1Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
+                    await btnComprarMaster.click();
+                    const popup1 = await popup1Promise;
+
+                    if (popup1) {
+                      await popup1.waitForSelector('a.buyBtn', { timeout: 15000 }).catch(() => {});
+                      const botones = await popup1.$$('a.buyBtn');
+                      
+                      if (botones.length >= 2) {
+                        const popup2Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
+                        await botones[1].click(); 
+                        const popup2 = await popup2Promise;
+
+                        if (popup2) {
+                          await new Promise(r => setTimeout(r, 4000));
+                          const urlFinal = popup2.url();
+                          linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: ahoraTimestamp });
+                          await popup2.close();
+                        }
+                      }
+                      await popup1.close();
+                    }
+                  } catch (e) { console.log(`Error en clics para ${nombre}: ${e.message}`); }
+                }
+                historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp, nuevo: true });
+              }
             }
+            listaLimpia = nombresActuales.map(n => ({ nombre: n }));
+            ultimaActualizacion = ahoraHora;
           }
-          listaLimpia = nombresActuales.map(n => ({ nombre: n }));
-          ultimaActualizacion = new Date().toLocaleTimeString('es-ES');
         }
       }
 
-      // Limpieza (12h)
       const doceHoras = 12 * 60 * 60 * 1000;
       historialNovedades = historialNovedades.filter(h => (Date.now() - h.timestamp) < doceHoras);
       linksDirectos = linksDirectos.filter(l => (Date.now() - l.timestamp) < doceHoras);
@@ -142,7 +143,7 @@ async function iniciarMonitor() {
   } catch (error) {
     console.log("❌ ERROR:", error.message);
     logEstado = "Error. Reiniciando...";
-    await browser.close();
+    if (browser) await browser.close();
     setTimeout(iniciarMonitor, 30000); 
   }
 }
@@ -158,7 +159,7 @@ app.get('/', (req, res) => {
           <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">Eventos Totales</div>
           <div style="font-size:6em; font-weight:bold; color:#B9C800; line-height:1; margin-bottom:15px;">${listaLimpia.length}</div>
           
-          <div style="background:#111; padding:15px; border-radius:10px; border:1px solid #222; display:inline-block; min-width:80%; text-align:left;">
+          <div style="background:#111; padding:15px; border-radius:10px; border:1px solid #222; display:inline-block; min-width:85%; text-align:left;">
             <p style="margin:5px 0; color:#ccc; font-size:1em;"><strong>Estado:</strong> ${logEstado}</p>
             <p style="margin:5px 0; color:#666; font-size:0.8em;">Refresco automático: 60s | Sincro: ${ultimaActualizacion}</p>
           </div>
@@ -174,7 +175,7 @@ app.get('/', (req, res) => {
                   COMPRAR: ${l.nombre} 🛒
                 </a>
               </div>
-            `).join('') : '<p style="color:#004400; text-align:center;">Esperando capturar pasarela...</p>'}
+            `).join('') : '<p style="color:#004400; text-align:center;">Esperando capturar pasarela de nuevos eventos...</p>'}
           </div>
         </section>
 
