@@ -3,7 +3,7 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS;
+const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@';
 
 app.use('/debug', express.static(__dirname));
 
@@ -14,7 +14,7 @@ let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Bot V2.6 - Sonido Recuperado...");
+  console.log("🚀 Iniciando Bot V2.7 - Tiempos Aleatorios Activos...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox']
@@ -85,8 +85,12 @@ async function iniciarMonitor() {
         ultimaActualizacion = ahoraHora;
       }
       
-      logEstado = "En espera (3 min)";
-      await new Promise(r => setTimeout(r, 180000));
+      // LÓGICA ALEATORIA: Entre 90s (90000ms) y 5min (300000ms)
+      const esperaMs = Math.floor(Math.random() * (300000 - 90000 + 1) + 90000);
+      const esperaSegs = Math.round(esperaMs / 1000);
+      logEstado = "Espera (" + esperaSegs + "s)";
+      console.log("⏳ Próximo escaneo en " + esperaSegs + " segundos...");
+      await new Promise(r => setTimeout(r, esperaMs));
     }
   } catch (error) {
     console.log("❌ Error:", error.message);
@@ -102,26 +106,18 @@ app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   let html = '<body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">';
   html += '<div style="max-width:800px; margin:auto; background:#111; padding:20px; border-radius:15px; border:1px solid #333;">';
-  
-  // Botón de Sonido
   html += '<div style="text-align:right; margin-bottom:10px;">';
   html += '<button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">🔇 Activar Sonido</button>';
   html += '</div>';
-
   html += '<h1 style="color:#B9C800; text-align:center; font-size:5em; margin:0;">' + listaLimpia.length + '</h1>';
   html += '<p style="text-align:center; color:#888;">' + logEstado + ' | Sincro: ' + ultimaActualizacion + '</p>';
-  
   html += '<h3 style="color:#00ff00;">🚀 LINKS DIRECTOS</h3>';
   html += '<div style="background:#001a00; padding:15px; border-radius:10px; border:1px solid #00ff00; min-height:50px;">';
-  if (linksDirectos.length === 0) {
-    html += '<p style="text-align:center; color:#004400;">Esperando nuevos eventos...</p>';
-  } else {
-    linksDirectos.forEach(l => {
-      html += '<a href="' + l.url + '" target="_blank" style="display:block; color:#fff; background:#004d00; padding:12px; margin:5px 0; border-radius:8px; text-decoration:none; text-align:center; font-weight:bold; border:1px solid #00ff00;">' + l.nombre + ' [' + l.hora + ']</a>';
-    });
-  }
+  if (linksDirectos.length === 0) html += '<p style="text-align:center; color:#004400;">Esperando...</p>';
+  linksDirectos.forEach(l => {
+    html += '<a href="' + l.url + '" target="_blank" style="display:block; color:#fff; background:#004d00; padding:12px; margin:5px 0; border-radius:8px; text-decoration:none; text-align:center; font-weight:bold; border:1px solid #00ff00;">' + l.nombre + ' [' + l.hora + ']</a>';
+  });
   html += '</div>';
-
   html += '<h3 style="color:#ff4400; margin-top:30px;">🔔 HISTORIAL</h3>';
   historialNovedades.forEach(h => {
     html += '<div style="padding:10px; border-bottom:1px solid #222; display:flex; justify-content:space-between; align-items:center;">';
@@ -129,8 +125,6 @@ app.get('/', (req, res) => {
     if (h.debugImg) html += '<a href="' + h.debugImg + '" target="_blank" style="color:#00acee; text-decoration:none; font-size:0.8em; background:#002233; padding:5px 10px; border-radius:5px;">Ver Debug</a>';
     html += '</div>';
   });
-
-  // Script de sonido corregido
   html += '</div>';
   html += '<script>';
   html += 'let sonidoActivado = sessionStorage.getItem("sonidoLocal") === "true";';
@@ -150,10 +144,7 @@ app.get('/', (req, res) => {
   html += '  const ctx = new (window.AudioContext || window.webkitAudioContext)();';
   html += '  const osc = ctx.createOscillator();';
   html += '  osc.connect(ctx.destination);';
-  html += '  osc.type = "sine";';
-  html += '  osc.frequency.setValueAtTime(880, ctx.currentTime);';
-  html += '  osc.start();';
-  html += '  setTimeout(() => osc.stop(), 200);';
+  html += '  osc.start(); setTimeout(() => osc.stop(), 200);';
   html += '}';
   html += 'setTimeout(() => location.reload(), 60000);';
   html += '</script></body>';
