@@ -3,11 +3,11 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS;
+const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@';
 
-let listaBruta = []; 
 let listaLimpia = []; 
 let historialNovedades = []; 
+let linksDirectos = []; 
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 let proximoEscaneo = "Pendiente";
@@ -29,16 +29,10 @@ async function iniciarMonitor() {
   
   const page = await browser.newPage();
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-  await page.setViewport({ width: 1280, height: 1000 });
 
   try {
     logEstado = "Intentando Login...";
-    console.log("🔑 Accediendo a login...");
-    
-    await page.goto('https://compras.abonoteatro.com/login/', { 
-      waitUntil: 'domcontentloaded', 
-      timeout: 90000 
-    });
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 90000 });
     
     await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Aceptar'));
@@ -57,108 +51,98 @@ async function iniciarMonitor() {
 
     while (true) {
       logEstado = "Escaneando cartelera...";
-      console.log("🔍 Escaneando...");
-
-      await page.goto('https://compras.abonoteatro.com/teatro/', { 
-        waitUntil: 'domcontentloaded', 
-        timeout: 90000 
-      }).catch(() => {});
+      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      await new Promise(r => setTimeout(r, 20000)); 
+      await new Promise(r => setTimeout(r, 15000)); 
 
       const frameElement = await page.$('iframe');
       if (frameElement) {
         const frame = await frameElement.contentFrame();
         const data = await frame.evaluate(() => {
-          const elementos = document.querySelectorAll('.tribe-events-list-event-title a, h3 a');
-          const options = document.querySelectorAll('#select_recinto_event option');
-          
-          const fromLinks = Array.from(elementos).map(el => ({
-            nombre: el.innerText.trim(),
-            url: el.href
-          }));
-
-          const fromOptions = Array.from(options).map(el => ({
-            nombre: el.innerText.trim(),
-            url: '#'
-          })).filter(item => item.nombre !== "" && item.nombre !== "-- Seleccione --");
-
-          return [...fromLinks, ...fromOptions].filter(item => item.nombre);
+          return Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'))
+            .map(el => el.innerText.trim())
+            .filter(n => n !== "");
         });
 
         if (data && data.length > 0) {
-          const anteriorParaComparar = [...listaLimpia];
-          listaBruta = data;
-
-          const uniqueData = data.filter((item, index, self) =>
-            item.nombre && index === self.findIndex((t) => t.nombre === item.nombre)
-          );
-          listaLimpia = uniqueData.sort((a, b) => a.nombre.localeCompare(b.nombre));
+          const nombresActuales = [...new Set(data)];
+          const anteriorNombres = listaLimpia.map(item => item.nombre);
+          const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
           
-          const ahoraTimestamp = Date.now();
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+          const ahoraTimestamp = Date.now();
 
-          if (anteriorParaComparar.length > 0) {
-            const detectadosAhora = listaLimpia.filter(item => !anteriorParaComparar.some(old => old.nombre === item.nombre));
-            
-            if (detectadosAhora.length > 0) {
-              historialNovedades.forEach(h => h.nuevo = false);
-              console.log(`✨ ¡Novedades detectadas! Reseteando alertas previas y marcando las ${detectadosAhora.length} actuales.`);
-              
-              for (const item of detectadosAhora) {
-                let finalUrl = item.url;
-                if (item.url && !item.url.endsWith('#')) {
-                  console.log(`🔎 Buscando URL final para: ${item.nombre}`);
-                  const newPage = await browser.newPage();
-                  try {
-                    await newPage.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 60000 });
-                    await newPage.waitForSelector('a.buyBtn', { timeout: 10000 });
+          if (detectadosAhora.length > 0) {
+            historialNovedades.forEach(h => h.nuevo = false);
+            console.log(`✨ ¡Nuevos eventos! Procesando ${detectadosAhora.length} URLs.`);
 
-                    const correctUrl = await newPage.evaluate(() => {
-                      const comprarBtns = Array.from(document.querySelectorAll('a.buyBtn'));
-                      if (comprarBtns.length > 1) return comprarBtns[1].href;
-                      if (comprarBtns.length === 1) return comprarBtns[0].href;
-                      return null;
-                    });
-
-                    if (correctUrl) {
-                      finalUrl = correctUrl;
-                      console.log(`✅ URL final encontrada: ${finalUrl}`);
-                    }
-                  } catch (e) {
-                    console.log(`❌ Error al buscar URL para ${item.nombre}: ${e.message}`);
-                  } finally {
-                    await newPage.close();
-                  }
+            for (const nombre of detectadosAhora) {
+              // 1. Buscar botón en la página máster (iframe)
+              const handle = await frame.evaluateHandle((n) => {
+                const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
+                if (link) {
+                  const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
+                  return card ? card.querySelector('a.buyBtn') : null;
                 }
+              }, nombre);
 
-                historialNovedades.unshift({ 
-                  nombre: item.nombre, 
-                  url: finalUrl, 
-                  hora: ahoraHora, 
-                  timestamp: ahoraTimestamp, 
-                  nuevo: true 
-                });
+              const btnComprarMaster = handle.asElement();
+              if (btnComprarMaster) {
+                try {
+                  // Preparamos captura de la primera ventana (Pop-up 1)
+                  const popup1Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
+                  await btnComprarMaster.click();
+                  const popup1 = await popup1Promise;
+
+                  if (popup1) {
+                    await popup1.waitForSelector('a.buyBtn', { timeout: 15000 }).catch(() => {});
+                    const botones = await popup1.$$('a.buyBtn');
+                    
+                    if (botones.length >= 2) {
+                      // 2. Click en el SEGUNDO botón "Comprar" del pop-up
+                      const popup2Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
+                      await botones[1].click(); 
+                      const popup2 = await popup2Promise;
+
+                      if (popup2) {
+                        // 3. Capturar URL de la ventana final
+                        await new Promise(r => setTimeout(r, 4000));
+                        const urlFinal = popup2.url();
+                        
+                        linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: ahoraTimestamp });
+                        await popup2.close();
+                      }
+                    }
+                    await popup1.close();
+                  }
+                } catch (e) { console.log(`Error en clics para ${nombre}: ${e.message}`); }
               }
+
+              historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp, nuevo: true });
             }
           }
-
-          historialNovedades = historialNovedades.filter(h => (ahoraTimestamp - h.timestamp) < (12 * 60 * 60 * 1000));
+          listaLimpia = nombresActuales.map(n => ({ nombre: n }));
           ultimaActualizacion = new Date().toLocaleTimeString('es-ES');
-          console.log(`📊 Lectura exitosa: ${listaBruta.length} eventos.`);
         }
       }
 
-      const espera = obtenerEsperaAleatoria(60, 300);
+      // Limpieza (12h)
+      const doceHoras = 12 * 60 * 60 * 1000;
+      historialNovedades = historialNovedades.filter(h => (Date.now() - h.timestamp) < doceHoras);
+      linksDirectos = linksDirectos.filter(l => (Date.now() - l.timestamp) < doceHoras);
+
+      const espera = obtenerEsperaAleatoria(180, 300);
+      const proximaLectura = new Date(Date.now() + espera * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       proximoEscaneo = `${Math.floor(espera/60)}m ${espera%60}s`;
-      logEstado = `En espera (${proximoEscaneo})`;
+      logEstado = `En espera (${proximoEscaneo}) | Horario Proxima lectura: ${proximaLectura}`;
+      
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
 
   } catch (error) {
     console.log("❌ ERROR:", error.message);
-    logEstado = "Error de conexión. Reintentando...";
-    try { await browser.close(); } catch (e) {}
+    logEstado = "Error. Reiniciando...";
+    await browser.close();
     setTimeout(iniciarMonitor, 30000); 
   }
 }
@@ -168,90 +152,51 @@ iniciarMonitor();
 app.get('/', (req, res) => {
   res.send(`
     <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
-      <div style="max-width:900px; margin:auto; border:1px solid #333; padding:25px; border-radius:15px; background:#0a0a0a;">
-        <header style="text-align:center; margin-bottom:30px;">
-          <h1 style="color:#B9C800; margin:0;">MONITOR AGILE</h1>
-          <p style="color:#666;">Sincronizado: ${ultimaActualizacion}</p>
-          <div style="font-size:5em; font-weight:bold; color:#B9C800;">${listaBruta.length}</div>
-          <div style="color:#444; text-transform:uppercase; font-size:0.8em;">Eventos Totales</div>
+      <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
+        
+        <header style="text-align:center; margin-bottom:40px; border-bottom: 1px solid #333; padding-bottom:20px;">
+          <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">Eventos Totales</div>
+          <div style="font-size:6em; font-weight:bold; color:#B9C800; line-height:1; margin-bottom:15px;">${listaLimpia.length}</div>
+          
+          <div style="background:#111; padding:15px; border-radius:10px; border:1px solid #222; display:inline-block; min-width:80%; text-align:left;">
+            <p style="margin:5px 0; color:#ccc; font-size:1em;"><strong>Estado:</strong> ${logEstado}</p>
+            <p style="margin:5px 0; color:#666; font-size:0.8em;">Refresco automático: 60s | Sincro: ${ultimaActualizacion}</p>
+          </div>
         </header>
 
         <section style="margin-bottom:30px;">
-          <div style="background:#111; border:1px solid #ff4400; padding:15px; border-radius:12px;">
-            <h3 style="color:#ff4400; margin-top:0;">🔔 ALERTAS 12H (${historialNovedades.length})</h3>
-            <div style="max-height:150px; overflow-y:auto;">
-              ${historialNovedades.length > 0 ? `
-                <table style="width:100%; text-align:left;">
-                  ${historialNovedades.map(h => {
-                    const style = h.nuevo ? 'color: #ff0000; font-size: 1.8em; font-weight: bold;' : 'color: orange; font-size: 1em; font-weight: normal;';
-                    const link = `<a href="${h.url}" target="_blank" style="text-decoration:none; ${style}">${h.nombre}</a>`;
-                    return `<tr style="border-bottom:1px solid #222;"><td style="color:#ffbb00; width:80px;">[${h.hora}]</td><td>${link}</td></tr>`;
-                  }).join('')}
-                </table>` : '<p style="color:#333;">Sin novedades.</p>'}
-            </div>
+          <h3 style="color:#00ff00; font-size:0.9em; text-transform:uppercase; border-left:4px solid #00ff00; padding-left:10px; margin-bottom:15px;">🚀 Links de Compra Directa</h3>
+          <div style="background:#001a00; border:1px solid #00ff00; padding:20px; border-radius:12px;">
+            ${linksDirectos.length > 0 ? linksDirectos.map(l => `
+              <div style="margin-bottom:15px; border-bottom:1px solid #003300; padding-bottom:10px;">
+                <div style="color:#66ff66; font-size:0.8em; margin-bottom:4px;">[${l.hora}]</div>
+                <a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; font-size:1.2em; text-decoration:none; background:#004d00; padding:12px; border-radius:8px; text-align:center; border:1px solid #00ff00;">
+                  COMPRAR: ${l.nombre} 🛒
+                </a>
+              </div>
+            `).join('') : '<p style="color:#004400; text-align:center;">Esperando capturar pasarela...</p>'}
           </div>
         </section>
 
         <section>
-          <div style="background:#050505; border:1px solid #333; padding:15px; border-radius:12px;">
-            <h3 style="color:#B9C800; margin-top:0;">📋 CARTELERA ÚNICA (${listaLimpia.length})</h3>
-            <div style="max-height:350px; overflow-y:auto;">
-              <table style="width:100%; text-align:left;">
-                ${listaLimpia.map((ev, i) => `<tr style="border-bottom:1px solid #111;"><td style="color:#444; width:30px;">${i+1}</td><td style="color:#ccc;"><a href="${ev.url}" target="_blank" style="color:#ccc; text-decoration:none;">${ev.nombre}</a></td></tr>`).join('')}
+          <h3 style="color:#ff4400; font-size:0.9em; text-transform:uppercase; border-left:4px solid #ff4400; padding-left:10px; margin-bottom:15px;">🔔 Historial de Alertas</h3>
+          <div style="background:#111; border:1px solid #333; padding:20px; border-radius:12px; max-height:300px; overflow-y:auto;">
+            ${historialNovedades.length > 0 ? `
+              <table style="width:100%; border-collapse:collapse;">
+                ${historialNovedades.map(h => `
+                  <tr style="border-bottom:1px solid #222;">
+                    <td style="padding:10px 0; color:#ffbb00; width:80px; font-size:0.9em;">[${h.hora}]</td>
+                    <td style="padding:10px 0; ${h.nuevo ? 'color:#ff0000; font-size:1.4em; font-weight:bold;' : 'color:orange; font-size:1em;'}">
+                      ${h.nombre}
+                    </td>
+                  </tr>
+                `).join('')}
               </table>
-            </div>
+            ` : '<p style="color:#333; text-align:center;">Sin novedades recientes.</p>'}
           </div>
         </section>
-
-        <footer style="margin-top:25px; color:#444; font-size:0.8em; text-align:center;">
-          <p>Estado: ${logEstado} | Refresco automático: 60s</p>
-        </footer>
       </div>
-      <div id="audio-overlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); color: white; display: flex; justify-content: center; align-items: center; z-index: 1000; cursor: pointer; font-size: 2em; text-align: center;">
-        Click para activar el Monitor y el Sonido
-      </div>
-      <script>
-        const audioOverlay = document.getElementById('audio-overlay');
-        const isAudioEnabled = () => sessionStorage.getItem('audioEnabled') === 'true';
-
-        audioOverlay.addEventListener('click', () => {
-            try {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                oscillator.type = 'square';
-                oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
-                oscillator.connect(audioCtx.destination);
-                oscillator.start();
-                setTimeout(() => oscillator.stop(), 150);
-                sessionStorage.setItem('audioEnabled', 'true');
-                audioOverlay.style.display = 'none';
-            } catch (e) {
-                console.error('Could not enable audio:', e);
-            }
-        }, { once: true });
-
-        if (isAudioEnabled()) {
-            audioOverlay.style.display = 'none';
-        }
-
-        const currentAlerts = ${historialNovedades.length};
-        const lastAlerts = sessionStorage.getItem('lastAlertCount') || 0;
-
-        if (currentAlerts > lastAlerts) {
-            if (isAudioEnabled()) {
-                const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                const oscillator = audioCtx.createOscillator();
-                oscillator.type = 'sine';
-                oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
-                oscillator.connect(audioCtx.destination);
-                oscillator.start();
-                setTimeout(() => oscillator.stop(), 200);
-            }
-        }
-
-        sessionStorage.setItem('lastAlertCount', currentAlerts);
-        setTimeout(() => location.reload(), 60000);
-      </script>
+      <script>setTimeout(() => location.reload(), 60000);</script>
     </body>
   `);
 });
