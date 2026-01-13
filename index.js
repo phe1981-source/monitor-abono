@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const express = require('express');
+const { exec } = require('child_process');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
@@ -12,19 +13,23 @@ let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 let proximoEscaneo = "Pendiente";
 
+// --- MEJORA 1: FUNCIÓN DE SONIDO (BIP) ---
+function sonarAlarma() {
+  // Ejecuta un beep en el sistema (compatible con Windows)
+  exec('powershell.exe [Console]::Beep(750, 500)', (error) => {
+    if (error) console.log("No se pudo reproducir el sonido de alerta.");
+  });
+}
+
 function obtenerEsperaAleatoria(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Bot con Debug de Screenshots...");
+  console.log("🚀 Iniciando Bot con Sonido y Debug Visual...");
   const browser = await puppeteer.launch({
     headless: "new",
-    args: [
-      '--no-sandbox', 
-      '--disable-setuid-sandbox', 
-      '--disable-blink-features=AutomationControlled'
-    ]
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
   });
   
   const page = await browser.newPage();
@@ -70,7 +75,6 @@ async function iniciarMonitor() {
           const ahoraTimestamp = Date.now();
 
           if (listaLimpia.length === 0) {
-            console.log(`📥 Inicializando base con ${nombresActuales.length} eventos.`);
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
           } else {
@@ -78,12 +82,13 @@ async function iniciarMonitor() {
             const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
             if (detectadosAhora.length > 0) {
+              // --- MEJORA 2: ACTIVAR ALARMA ---
+              sonarAlarma();
               historialNovedades.forEach(h => h.nuevo = false);
-              console.log(`✨ ¡Novedades detectadas!: ${detectadosAhora.join(', ')}`);
 
               for (const nombre of detectadosAhora) {
                 try {
-                  // DEBUG 01: Captura de la lista principal
+                  // --- MEJORA 3: DEBUG STEP 01 ---
                   await page.screenshot({ path: `debug_01_lista_${nombre.replace(/ /g, '_')}.png` });
 
                   const handle = await frame.evaluateHandle((n) => {
@@ -96,34 +101,33 @@ async function iniciarMonitor() {
 
                   const btnComprarMaster = handle.asElement();
                   if (btnComprarMaster) {
-                    // Clic 1: Abre el primer popup
+                    // Gestión Popup 1
                     const popup1Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
                     await btnComprarMaster.click();
                     const popup1 = await popup1Promise;
 
                     if (popup1) {
                       await popup1.waitForSelector('a.buyBtn', { timeout: 15000 }).catch(() => {});
-                      // DEBUG 02: Captura del popup con los botones de fecha
+                      
+                      // --- DEBUG STEP 02 ---
                       await popup1.screenshot({ path: `debug_02_popup_${nombre.replace(/ /g, '_')}.png` });
 
                       const botones = await popup1.$$('a.buyBtn');
                       
                       if (botones.length >= 2) {
-                        // Clic 2: El segundo botón es el que abre la pasarela final
+                        // Selección Crítica: Clic en el segundo botón Comprar del popup
                         const popup2Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
                         await botones[1].click(); 
                         const popup2 = await popup2Promise;
 
                         if (popup2) {
-                          // Esperamos a que cargue la URL de compras.abonoteatro.com
                           await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {});
                           const urlFinal = popup2.url();
                           
-                          // DEBUG 03: Captura de la pasarela de pago
+                          // --- DEBUG STEP 03 ---
                           await popup2.screenshot({ path: `debug_03_pasarela_${nombre.replace(/ /g, '_')}.png` });
 
                           linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: ahoraTimestamp });
-                          console.log(`✅ URL Capturada para ${nombre}: ${urlFinal}`);
                           await popup2.close();
                         }
                       }
@@ -131,7 +135,7 @@ async function iniciarMonitor() {
                     }
                   }
                   historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp, nuevo: true });
-                } catch (e) { console.log(`Error procesando ${nombre}: ${e.message}`); }
+                } catch (e) { console.log(`Error en ${nombre}: ${e.message}`); }
               }
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
@@ -140,15 +144,9 @@ async function iniciarMonitor() {
         }
       }
 
-      const doceHoras = 12 * 60 * 60 * 1000;
-      historialNovedades = historialNovedades.filter(h => (Date.now() - h.timestamp) < doceHoras);
-      linksDirectos = linksDirectos.filter(l => (Date.now() - l.timestamp) < doceHoras);
-
       const espera = obtenerEsperaAleatoria(180, 300);
-      const proximaLectura = new Date(Date.now() + espera * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       proximoEscaneo = `${Math.floor(espera/60)}m ${espera%60}s`;
-      logEstado = `En espera (${proximoEscaneo}) | Proxima lectura: ${proximaLectura}`;
-      
+      logEstado = `En espera (${proximoEscaneo}) | Próxima lectura: ${new Date(Date.now() + espera * 1000).toLocaleTimeString()}`;
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
 
@@ -166,14 +164,12 @@ app.get('/', (req, res) => {
   res.send(`
     <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
       <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
-        
         <header style="text-align:center; margin-bottom:40px; border-bottom: 1px solid #333; padding-bottom:20px;">
           <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">Eventos Totales</div>
           <div style="font-size:6em; font-weight:bold; color:#B9C800; line-height:1; margin-bottom:15px;">${listaLimpia.length}</div>
-          
           <div style="background:#111; padding:15px; border-radius:10px; border:1px solid #222; display:inline-block; min-width:85%; text-align:left;">
             <p style="margin:5px 0; color:#ccc; font-size:1em;"><strong>Estado:</strong> ${logEstado}</p>
-            <p style="margin:5px 0; color:#666; font-size:0.8em;">Refresco automático: 60s | Sincro: ${ultimaActualizacion}</p>
+            <p style="margin:5px 0; color:#666; font-size:0.8em;">Sincro: ${ultimaActualizacion}</p>
           </div>
         </header>
 
@@ -187,25 +183,23 @@ app.get('/', (req, res) => {
                   COMPRAR: ${l.nombre} 🛒
                 </a>
               </div>
-            `).join('') : '<p style="color:#004400; text-align:center;">Esperando capturar pasarela de nuevos eventos...</p>'}
+            `).join('') : '<p style="color:#004400; text-align:center;">Esperando capturar pasarela...</p>'}
           </div>
         </section>
 
         <section>
           <h3 style="color:#ff4400; font-size:0.9em; text-transform:uppercase; border-left:4px solid #ff4400; padding-left:10px; margin-bottom:15px;">🔔 Historial de Alertas</h3>
           <div style="background:#111; border:1px solid #333; padding:20px; border-radius:12px; max-height:300px; overflow-y:auto;">
-            ${historialNovedades.length > 0 ? `
-              <table style="width:100%; border-collapse:collapse;">
-                ${historialNovedades.map(h => `
-                  <tr style="border-bottom:1px solid #222;">
-                    <td style="padding:10px 0; color:#ffbb00; width:80px; font-size:0.9em;">[${h.hora}]</td>
-                    <td style="padding:10px 0; ${h.nuevo ? 'color:#ff0000; font-size:1.4em; font-weight:bold;' : 'color:orange; font-size:1em;'}">
-                      ${h.nombre}
-                    </td>
-                  </tr>
-                `).join('')}
-              </table>
-            ` : '<p style="color:#333; text-align:center;">Sin novedades recientes.</p>'}
+            <table style="width:100%; border-collapse:collapse;">
+              ${historialNovedades.map(h => `
+                <tr style="border-bottom:1px solid #222;">
+                  <td style="padding:10px 0; color:#ffbb00; width:80px; font-size:0.9em;">[${h.hora}]</td>
+                  <td style="padding:10px 0; ${h.nuevo ? 'color:#ff0000; font-size:1.4em; font-weight:bold;' : 'color:orange; font-size:1em;'}">
+                    ${h.nombre}
+                  </td>
+                </tr>
+              `).join('')}
+            </table>
           </div>
         </section>
       </div>
@@ -215,4 +209,4 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Servidor UI en puerto ${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Servidor escuchando en puerto ${PORT}`));
