@@ -1,6 +1,5 @@
 const puppeteer = require('puppeteer');
 const express = require('express');
-const { exec } = require('child_process');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
@@ -12,14 +11,6 @@ let linksDirectos = [];
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 let proximoEscaneo = "Pendiente";
-
-// --- MEJORA 1: FUNCIÓN DE SONIDO (BIP) ---
-function sonarAlarma() {
-  // Ejecuta un beep en el sistema (compatible con Windows)
-  exec('powershell.exe [Console]::Beep(750, 500)', (error) => {
-    if (error) console.log("No se pudo reproducir el sonido de alerta.");
-  });
-}
 
 function obtenerEsperaAleatoria(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
@@ -82,8 +73,6 @@ async function iniciarMonitor() {
             const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
             if (detectadosAhora.length > 0) {
-              // --- MEJORA 2: ACTIVAR ALARMA ---
-              sonarAlarma();
               historialNovedades.forEach(h => h.nuevo = false);
 
               for (const nombre of detectadosAhora) {
@@ -161,8 +150,10 @@ async function iniciarMonitor() {
 iniciarMonitor();
 
 app.get('/', (req, res) => {
+  const hayNovedad = historialNovedades.some(h => h.nuevo);
+
   res.send(`
-    <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
+    <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;" ${hayNovedad ? 'data-new-event="true"' : ''}>
       <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
         <header style="text-align:center; margin-bottom:40px; border-bottom: 1px solid #333; padding-bottom:20px;">
           <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">Eventos Totales</div>
@@ -171,6 +162,7 @@ app.get('/', (req, res) => {
             <p style="margin:5px 0; color:#ccc; font-size:1em;"><strong>Estado:</strong> ${logEstado}</p>
             <p style="margin:5px 0; color:#666; font-size:0.8em;">Sincro: ${ultimaActualizacion}</p>
           </div>
+          <button id="sound-toggle" style="margin-top:20px; padding: 10px 20px; background: #333; color: #fff; border: 1px solid #555; border-radius: 5px; cursor: pointer;">Activar Sonido</button>
         </header>
 
         <section style="margin-bottom:30px;">
@@ -203,7 +195,51 @@ app.get('/', (req, res) => {
           </div>
         </section>
       </div>
-      <script>setTimeout(() => location.reload(), 60000);</script>
+      <script>
+        setTimeout(() => location.reload(), 60000);
+
+        const soundToggle = document.getElementById('sound-toggle');
+        let audioCtx;
+        let soundEnabled = sessionStorage.getItem('soundEnabled') === 'true';
+
+        function updateButtonText() {
+          soundToggle.textContent = soundEnabled ? 'Silenciar Sonido' : 'Activar Sonido';
+        }
+
+        function playBeep() {
+          if (!audioCtx || !soundEnabled) return;
+          const oscillator = audioCtx.createOscillator();
+          oscillator.type = 'sine';
+          oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); // A5 note
+          oscillator.connect(audioCtx.destination);
+          oscillator.start();
+          oscillator.stop(audioCtx.currentTime + 0.2); // Beep for 0.2s
+        }
+
+        updateButtonText();
+
+        soundToggle.addEventListener('click', () => {
+          soundEnabled = !soundEnabled;
+          sessionStorage.setItem('soundEnabled', soundEnabled);
+          updateButtonText();
+
+          if (soundEnabled && !audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          }
+
+          if (soundEnabled) {
+            playBeep(); // Play a sound on activation to confirm it's working
+          }
+        });
+
+        if (document.body.dataset.newEvent === 'true' && soundEnabled) {
+          // Lazily create context if it wasn't created by a click yet
+          if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          }
+          playBeep();
+        }
+      </script>
     </body>
   `);
 });
