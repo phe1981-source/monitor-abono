@@ -53,9 +53,10 @@ async function iniciarMonitor() {
       logEstado = "Escaneando cartelera...";
       await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      await new Promise(r => setTimeout(r, 15000)); 
-
+      // Espera a que el iframe esté cargado en lugar de usar un tiempo fijo
+      await page.waitForSelector('iframe', { timeout: 60000 });
       const frameElement = await page.$('iframe');
+
       if (frameElement) {
         const frame = await frameElement.contentFrame();
         const data = await frame.evaluate(() => {
@@ -84,6 +85,9 @@ async function iniciarMonitor() {
               console.log(`✨ ¡Novedades reales! Procesando ${detectadosAhora.length} URLs.`);
 
               for (const nombre of detectadosAhora) {
+                // 1. ANCLAJE: Localiza el botón "Comprar" específico del evento.
+                // Busca el enlace con el nombre del evento y, desde ahí, sube al contenedor
+                // padre (la "card") para encontrar el botón de compra correcto.
                 const handle = await frame.evaluateHandle((n) => {
                   const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
                   if (link) {
@@ -95,6 +99,8 @@ async function iniciarMonitor() {
                 const btnComprarMaster = handle.asElement();
                 if (btnComprarMaster) {
                   try {
+                    // 2. GESTIÓN POPUP 1: El clic en "Comprar" abre una nueva ventana.
+                    // 'targetcreated' la captura para poder controlarla.
                     const popup1Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
                     await btnComprarMaster.click();
                     const popup1 = await popup1Promise;
@@ -104,12 +110,17 @@ async function iniciarMonitor() {
                       const botones = await popup1.$$('a.buyBtn');
                       
                       if (botones.length >= 2) {
+                        // 3. SELECCIÓN CRÍTICA: En el primer popup, el segundo botón es el que avanza.
                         const popup2Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
                         await botones[1].click(); 
                         const popup2 = await popup2Promise;
 
                         if (popup2) {
-                          await new Promise(r => setTimeout(r, 4000));
+                          // 4. CAPTURA URL FINAL: Espera a que la segunda ventana se estabilice
+                          // y extrae la URL definitiva de la pasarela de pago.
+                          await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {
+                            console.log(`Timeout en waitForNavigation para ${nombre}`);
+                          });
                           const urlFinal = popup2.url();
                           linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: ahoraTimestamp });
                           await popup2.close();
