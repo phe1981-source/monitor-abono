@@ -3,7 +3,10 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@';
+const PASS = process.env.ABONO_PASS; 
+if (!PASS) {
+  console.error("❌ ERROR: La variable ABONO_PASS no está configurada.");
+}
 
 app.use('/debug', express.static(__dirname));
 
@@ -14,38 +17,41 @@ let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Bot V2.7 - Tiempos Aleatorios Activos...");
+  console.log("🚀 Iniciando Bot V3.1 - Login Robusto...");
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
   });
   
   const page = await browser.newPage();
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   try {
-    logEstado = "Login (Espera 90s)...";
-    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 90000 });
+    logEstado = "Accediendo al login...";
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 120000 });
+    
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
-    await Promise.all([
-      page.click('input[value="Entrar"].buyBtn'),
-      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 })
-    ]);
+    
+    // Ejecutamos el click
+    await page.click('input[value="Entrar"].buyBtn');
+    
+    logEstado = "Validando credenciales...";
+    // En lugar de esperar navegación completa, esperamos que aparezca el iframe de la cartelera
+    await page.waitForSelector('iframe', { timeout: 90000 });
 
-    console.log("✅ Login completado");
+    console.log("✅ Login confirmado mediante selector");
 
     while (true) {
-      logEstado = "Buscando novedades...";
-      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
+      logEstado = "Escaneando cartelera...";
+      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 120000 });
       
       const frameElement = await page.waitForSelector('iframe', { timeout: 60000 });
       const frame = await frameElement.contentFrame();
 
       const data = await frame.evaluate(() => {
         return Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'))
-          .map(el => el.innerText.trim())
-          .filter(n => n !== "");
+          .map(el => el.innerText.trim()).filter(n => n !== "");
       });
 
       if (data && data.length > 0) {
@@ -57,7 +63,6 @@ async function iniciarMonitor() {
           const detectados = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
           for (const nombre of detectados) {
-            const shotPath = 'debug_' + Date.now() + '.png';
             try {
               await frame.evaluate((n) => {
                 const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
@@ -69,32 +74,27 @@ async function iniciarMonitor() {
               }, nombre);
 
               await new Promise(r => setTimeout(r, 10000));
-              await page.screenshot({ path: shotPath });
-
               const pages = await browser.pages();
               for (const p of pages) {
                 if (p.url().includes('shoppad') || p.url().includes('checkout')) {
                   linksDirectos.unshift({ nombre: nombre, url: p.url(), hora: ahoraHora });
                 }
               }
-              historialNovedades.unshift({ nombre: nombre, hora: ahoraHora, nuevo: true, debugImg: '/debug/' + shotPath });
-            } catch (e) { console.log("Error novedad:", e.message); }
+              historialNovedades.unshift({ nombre: nombre, hora: ahoraHora, nuevo: true });
+            } catch (e) { console.log("Error en click:", e.message); }
           }
         }
         listaLimpia = nombresActuales.map(n => ({ nombre: n }));
         ultimaActualizacion = ahoraHora;
       }
       
-      // LÓGICA ALEATORIA: Entre 90s (90000ms) y 5min (300000ms)
       const esperaMs = Math.floor(Math.random() * (300000 - 90000 + 1) + 90000);
-      const esperaSegs = Math.round(esperaMs / 1000);
-      logEstado = "Espera (" + esperaSegs + "s)";
-      console.log("⏳ Próximo escaneo en " + esperaSegs + " segundos...");
+      logEstado = "Espera (" + Math.round(esperaMs / 1000) + "s)";
       await new Promise(r => setTimeout(r, esperaMs));
     }
   } catch (error) {
-    console.log("❌ Error:", error.message);
-    logEstado = "Reiniciando...";
+    console.log("❌ Error detectado:", error.message);
+    logEstado = "Reiniciando por error...";
     if (browser) await browser.close();
     setTimeout(iniciarMonitor, 15000);
   }
@@ -111,45 +111,29 @@ app.get('/', (req, res) => {
   html += '</div>';
   html += '<h1 style="color:#B9C800; text-align:center; font-size:5em; margin:0;">' + listaLimpia.length + '</h1>';
   html += '<p style="text-align:center; color:#888;">' + logEstado + ' | Sincro: ' + ultimaActualizacion + '</p>';
-  html += '<h3 style="color:#00ff00;">🚀 LINKS DIRECTOS</h3>';
+  html += '<h3 style="color:#00ff00;">🚀 LINKS DE COMPRA</h3>';
   html += '<div style="background:#001a00; padding:15px; border-radius:10px; border:1px solid #00ff00; min-height:50px;">';
-  if (linksDirectos.length === 0) html += '<p style="text-align:center; color:#004400;">Esperando...</p>';
+  if (linksDirectos.length === 0) html += '<p style="text-align:center; color:#004400;">Buscando eventos nuevos...</p>';
   linksDirectos.forEach(l => {
     html += '<a href="' + l.url + '" target="_blank" style="display:block; color:#fff; background:#004d00; padding:12px; margin:5px 0; border-radius:8px; text-decoration:none; text-align:center; font-weight:bold; border:1px solid #00ff00;">' + l.nombre + ' [' + l.hora + ']</a>';
   });
   html += '</div>';
   html += '<h3 style="color:#ff4400; margin-top:30px;">🔔 HISTORIAL</h3>';
   historialNovedades.forEach(h => {
-    html += '<div style="padding:10px; border-bottom:1px solid #222; display:flex; justify-content:space-between; align-items:center;">';
-    html += '<span style="' + (h.nuevo ? 'color:#ff4400; font-weight:bold;' : 'color:#ccc;') + '">[' + h.hora + '] ' + h.nombre + '</span>';
-    if (h.debugImg) html += '<a href="' + h.debugImg + '" target="_blank" style="color:#00acee; text-decoration:none; font-size:0.8em; background:#002233; padding:5px 10px; border-radius:5px;">Ver Debug</a>';
-    html += '</div>';
+    html += '<div style="padding:10px; border-bottom:1px solid #222;">[' + h.hora + '] ' + h.nombre + '</div>';
   });
   html += '</div>';
   html += '<script>';
   html += 'let sonidoActivado = sessionStorage.getItem("sonidoLocal") === "true";';
   html += 'const btn = document.getElementById("btnSonido");';
-  html += 'function updateBtn() {';
-  html += '  btn.innerText = sonidoActivado ? "🔊 Sonido Activo" : "🔇 Activar Sonido";';
-  html += '  btn.style.background = sonidoActivado ? "#00ff00" : "#444";';
-  html += '  btn.style.color = sonidoActivado ? "#000" : "#fff";';
-  html += '}';
+  html += 'function updateBtn() { btn.innerText = sonidoActivado ? "🔊 Sonido Activo" : "🔇 Activar Sonido"; btn.style.background = sonidoActivado ? "#00ff00" : "#444"; btn.style.color = sonidoActivado ? "#000" : "#fff"; }';
   html += 'updateBtn();';
-  html += 'function toggleSonido() {';
-  html += '  sonidoActivado = !sonidoActivado;';
-  html += '  sessionStorage.setItem("sonidoLocal", sonidoActivado);';
-  html += '  updateBtn();';
-  html += '}';
-  html += 'if (' + hayNovedad + ' && sonidoActivado) {';
-  html += '  const ctx = new (window.AudioContext || window.webkitAudioContext)();';
-  html += '  const osc = ctx.createOscillator();';
-  html += '  osc.connect(ctx.destination);';
-  html += '  osc.start(); setTimeout(() => osc.stop(), 200);';
-  html += '}';
-  html += 'setTimeout(() => location.reload(), 60000);';
+  html += 'function toggleSonido() { sonidoActivado = !sonidoActivado; sessionStorage.setItem("sonidoLocal", sonidoActivado); updateBtn(); }';
+  html += 'if (' + hayNovedad + ' && sonidoActivado) { const ctx = new AudioContext(); const osc = ctx.createOscillator(); osc.connect(ctx.destination); osc.start(); setTimeout(() => osc.stop(), 300); }';
+  html += 'setTimeout(() => location.reload(), 45000);';
   html += '</script></body>';
   res.send(html);
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log('Servidor en puerto ' + PORT));
+app.listen(PORT, '0.0.0.0', () => console.log('Servidor activo en puerto ' + PORT));
