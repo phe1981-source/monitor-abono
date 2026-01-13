@@ -17,7 +17,7 @@ function obtenerEsperaAleatoria(min, max) {
 }
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Bot...");
+  console.log("🚀 Iniciando Bot con Debug de Screenshots...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: [
@@ -53,7 +53,6 @@ async function iniciarMonitor() {
       logEstado = "Escaneando cartelera...";
       await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      // Espera a que el iframe esté cargado en lugar de usar un tiempo fijo
       await page.waitForSelector('iframe', { timeout: 60000 });
       const frameElement = await page.$('iframe');
 
@@ -70,67 +69,69 @@ async function iniciarMonitor() {
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
           const ahoraTimestamp = Date.now();
 
-          // --- LÓGICA DE PRIMERA LECTURA (EVITA ALERTAS FALSAS TRAS DEPLOY) ---
           if (listaLimpia.length === 0) {
-            console.log(`📥 Inicializando base de datos con ${nombresActuales.length} eventos.`);
+            console.log(`📥 Inicializando base con ${nombresActuales.length} eventos.`);
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
           } else {
-            // Comparación normal para buscar novedades
             const anteriorNombres = listaLimpia.map(item => item.nombre);
             const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
             if (detectadosAhora.length > 0) {
               historialNovedades.forEach(h => h.nuevo = false);
-              console.log(`✨ ¡Novedades reales! Procesando ${detectadosAhora.length} URLs.`);
+              console.log(`✨ ¡Novedades detectadas!: ${detectadosAhora.join(', ')}`);
 
               for (const nombre of detectadosAhora) {
-                // 1. ANCLAJE: Localiza el botón "Comprar" específico del evento.
-                // Busca el enlace con el nombre del evento y, desde ahí, sube al contenedor
-                // padre (la "card") para encontrar el botón de compra correcto.
-                const handle = await frame.evaluateHandle((n) => {
-                  const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
-                  if (link) {
-                    const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
-                    return card ? card.querySelector('a.buyBtn') : null;
-                  }
-                }, nombre);
+                try {
+                  // DEBUG 01: Captura de la lista principal
+                  await page.screenshot({ path: `debug_01_lista_${nombre.replace(/ /g, '_')}.png` });
 
-                const btnComprarMaster = handle.asElement();
-                if (btnComprarMaster) {
-                  try {
-                    // 2. GESTIÓN POPUP 1: El clic en "Comprar" abre una nueva ventana.
-                    // 'targetcreated' la captura para poder controlarla.
+                  const handle = await frame.evaluateHandle((n) => {
+                    const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
+                    if (link) {
+                      const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
+                      return card ? card.querySelector('a.buyBtn') : null;
+                    }
+                  }, nombre);
+
+                  const btnComprarMaster = handle.asElement();
+                  if (btnComprarMaster) {
+                    // Clic 1: Abre el primer popup
                     const popup1Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
                     await btnComprarMaster.click();
                     const popup1 = await popup1Promise;
 
                     if (popup1) {
                       await popup1.waitForSelector('a.buyBtn', { timeout: 15000 }).catch(() => {});
+                      // DEBUG 02: Captura del popup con los botones de fecha
+                      await popup1.screenshot({ path: `debug_02_popup_${nombre.replace(/ /g, '_')}.png` });
+
                       const botones = await popup1.$$('a.buyBtn');
                       
                       if (botones.length >= 2) {
-                        // 3. SELECCIÓN CRÍTICA: En el primer popup, el segundo botón es el que avanza.
+                        // Clic 2: El segundo botón es el que abre la pasarela final
                         const popup2Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
                         await botones[1].click(); 
                         const popup2 = await popup2Promise;
 
                         if (popup2) {
-                          // 4. CAPTURA URL FINAL: Espera a que la segunda ventana se estabilice
-                          // y extrae la URL definitiva de la pasarela de pago.
-                          await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {
-                            console.log(`Timeout en waitForNavigation para ${nombre}`);
-                          });
+                          // Esperamos a que cargue la URL de compras.abonoteatro.com
+                          await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {});
                           const urlFinal = popup2.url();
+                          
+                          // DEBUG 03: Captura de la pasarela de pago
+                          await popup2.screenshot({ path: `debug_03_pasarela_${nombre.replace(/ /g, '_')}.png` });
+
                           linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: ahoraTimestamp });
+                          console.log(`✅ URL Capturada para ${nombre}: ${urlFinal}`);
                           await popup2.close();
                         }
                       }
                       await popup1.close();
                     }
-                  } catch (e) { console.log(`Error en clics para ${nombre}: ${e.message}`); }
-                }
-                historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp, nuevo: true });
+                  }
+                  historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp, nuevo: true });
+                } catch (e) { console.log(`Error procesando ${nombre}: ${e.message}`); }
               }
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
@@ -146,7 +147,7 @@ async function iniciarMonitor() {
       const espera = obtenerEsperaAleatoria(180, 300);
       const proximaLectura = new Date(Date.now() + espera * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
       proximoEscaneo = `${Math.floor(espera/60)}m ${espera%60}s`;
-      logEstado = `En espera (${proximoEscaneo}) | Horario Proxima lectura: ${proximaLectura}`;
+      logEstado = `En espera (${proximoEscaneo}) | Proxima lectura: ${proximaLectura}`;
       
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
@@ -214,4 +215,4 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0');
+app.listen(PORT, '0.0.0.0', () => console.log(`Servidor UI en puerto ${PORT}`));
