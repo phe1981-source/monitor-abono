@@ -3,14 +3,13 @@ const express = require('express');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS;
+const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@';
 
 let listaLimpia = []; 
 let historialNovedades = []; 
 let linksDirectos = []; 
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
-let proximoEscaneo = "Pendiente";
 
 function obtenerEsperaAleatoria(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
@@ -63,7 +62,6 @@ async function iniciarMonitor() {
         if (data && data.length > 0) {
           const nombresActuales = [...new Set(data)];
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-          const ahoraTimestamp = Date.now();
 
           if (listaLimpia.length === 0) {
             console.log(`📥 Inicializando base con ${nombresActuales.length} eventos.`);
@@ -74,12 +72,10 @@ async function iniciarMonitor() {
             const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
             if (detectadosAhora.length > 0) {
-              console.log(`✨ ¡Novedades detectadas!: ${detectadosAhora.join(', ')}`);
               historialNovedades.forEach(h => h.nuevo = false);
 
               for (const nombre of detectadosAhora) {
                 try {
-                  // DEBUG 01: Captura de la lista principal
                   await page.screenshot({ path: `debug_01_lista_${nombre.replace(/ /g, '_')}.png` });
 
                   const handle = await frame.evaluateHandle((n) => {
@@ -111,15 +107,15 @@ async function iniciarMonitor() {
                           const urlFinal = popup2.url();
                           await popup2.screenshot({ path: `debug_03_pasarela_${nombre.replace(/ /g, '_')}.png` });
 
-                          linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: ahoraTimestamp });
+                          linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: Date.now() });
                           await popup2.close();
                         }
                       }
                       await popup1.close();
                     }
                   }
-                  historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ahoraTimestamp, nuevo: true });
-                } catch (e) { console.log(`Error en ${nombre}: \${e.message}`); }
+                  historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
+                } catch (e) { console.log(`Error en ${nombre}: ${e.message}`); }
               }
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
@@ -129,14 +125,11 @@ async function iniciarMonitor() {
       }
 
       const espera = obtenerEsperaAleatoria(180, 300);
-      proximoEscaneo = `${Math.floor(espera/60)}m ${espera%60}s`;
-      logEstado = `En espera (${proximoEscaneo}) | Próxima: ${new Date(Date.now() + espera * 1000).toLocaleTimeString()}`;
+      logEstado = `Espera (${Math.floor(espera/60)}m ${espera%60}s)`;
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
-
   } catch (error) {
     console.log("❌ ERROR:", error.message);
-    logEstado = "Error. Reiniciando...";
     if (browser) await browser.close();
     setTimeout(iniciarMonitor, 30000); 
   }
@@ -149,57 +142,43 @@ app.get('/', (req, res) => {
   res.send(`
     <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
       <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
-        
         <div style="text-align:right; margin-bottom:20px;">
           <button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">
-            🔇 Activar Sonido (Necesario para Alerta)
+            🔇 Activar Sonido
           </button>
         </div>
-
-        <header style="text-align:center; margin-bottom:40px; border-bottom: 1px solid #333; padding-bottom:20px;">
-          <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:1px; margin-bottom:10px;">Eventos Totales</div>
-          <div style="font-size:6em; font-weight:bold; color:#B9C800; line-height:1; margin-bottom:15px;">\${listaLimpia.length}</div>
-          <div style="background:#111; padding:15px; border-radius:10px; border:1px solid #222; display:inline-block; min-width:85%; text-align:left;">
-            <p style="margin:5px 0; color:#ccc; font-size:1em;"><strong>Estado:</strong> \${logEstado}</p>
-            <p style="margin:5px 0; color:#666; font-size:0.8em;">Sincro: \${ultimaActualizacion}</p>
-          </div>
+        <header style="text-align:center; margin-bottom:40px;">
+          <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase;">Eventos Totales</div>
+          <div style="font-size:6em; font-weight:bold; color:#B9C800;">${listaLimpia.length}</div>
+          <p>Estado: ${logEstado} | Sincro: ${ultimaActualizacion}</p>
         </header>
-
         <section style="margin-bottom:30px;">
-          <h3 style="color:#00ff00; font-size:0.9em; text-transform:uppercase; border-left:4px solid #00ff00; padding-left:10px; margin-bottom:15px;">🚀 Links de Compra Directa</h3>
+          <h3 style="color:#00ff00; border-left:4px solid #00ff00; padding-left:10px;">🚀 Links Directos</h3>
           <div style="background:#001a00; border:1px solid #00ff00; padding:20px; border-radius:12px;">
-            \${linksDirectos.length > 0 ? linksDirectos.map(l => \`
-              <div style="margin-bottom:15px; border-bottom:1px solid #003300; padding-bottom:10px;">
-                <div style="color:#66ff66; font-size:0.8em; margin-bottom:4px;">[\${l.hora}]</div>
-                <a href="\${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; font-size:1.2em; text-decoration:none; background:#004d00; padding:12px; border-radius:8px; text-align:center; border:1px solid #00ff00;">
-                  COMPRAR: \${l.nombre} 🛒
+            ${linksDirectos.map(l => `
+              <div style="margin-bottom:10px;">
+                <a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; background:#004d00; padding:12px; border-radius:8px; text-align:center; text-decoration:none; border:1px solid #00ff00;">
+                  ${l.nombre} [${l.hora}]
                 </a>
               </div>
-            \`).join('') : '<p style="color:#004400; text-align:center;">Esperando capturar pasarela...</p>'}
+            `).join('') || '<p>Esperando novedades...</p>'}
           </div>
         </section>
-
         <section>
-          <h3 style="color:#ff4400; font-size:0.9em; text-transform:uppercase; border-left:4px solid #ff4400; padding-left:10px; margin-bottom:15px;">🔔 Historial</h3>
-          <div style="background:#111; border:1px solid #333; padding:20px; border-radius:12px; max-height:200px; overflow-y:auto;">
-            \${historialNovedades.map(h => \`
-              <div style="padding:5px 0; border-bottom:1px solid #222; \${h.nuevo ? 'color:#ff0000; font-weight:bold;' : 'color:orange;'}">
-                [\${h.hora}] \${h.nombre}
-              </div>
-            \`).join('')}
+          <h3 style="color:#ff4400; border-left:4px solid #ff4400; padding-left:10px;">🔔 Historial</h3>
+          <div style="background:#111; padding:20px; border-radius:12px; max-height:200px; overflow-y:auto;">
+            ${historialNovedades.map(h => `<p style="${h.nuevo ? 'color:#ff0000; font-weight:bold;' : 'color:orange;'}">[${h.hora}] ${h.nombre}</p>`).join('')}
           </div>
         </section>
       </div>
-
       <script>
         let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let audioCtx;
         
         function updateBtn() {
             const btn = document.getElementById('btnSonido');
             btn.innerText = sonidoActivado ? '🔊 Sonido Activo' : '🔇 Activar Sonido';
             btn.style.background = sonidoActivado ? '#00ff00' : '#444';
-            btn.style.color = sonidoActivado ? '#000' : '#fff';
         }
         updateBtn();
 
@@ -208,27 +187,25 @@ app.get('/', (req, res) => {
           sessionStorage.setItem('sonidoLocal', sonidoActivado);
           updateBtn();
           if (sonidoActivado) {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
             audioCtx.resume();
             playBeep();
           }
         }
 
         function playBeep() {
-          if (!sonidoActivado) return;
+          if (!sonidoActivado || !audioCtx) return;
           const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.connect(gain);
-          gain.connect(audioCtx.destination);
-          osc.type = 'sine';
+          osc.connect(audioCtx.destination);
           osc.frequency.setValueAtTime(880, audioCtx.currentTime);
           osc.start();
           setTimeout(() => osc.stop(), 200);
         }
 
-        if (\${hayNovedad} && sonidoActivado) {
+        if (${hayNovedad} && sonidoActivado) {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
           setTimeout(playBeep, 1000);
         }
-
         setTimeout(() => location.reload(), 60000);
       </script>
     </body>
@@ -236,4 +213,4 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(\`Servidor UI en puerto \${PORT}\`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Servidor iniciado en puerto ${PORT}`));
