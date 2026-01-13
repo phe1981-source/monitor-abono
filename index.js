@@ -16,7 +16,7 @@ function obtenerEsperaAleatoria(min, max) {
 }
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Bot con Sonido en Cliente y Debug Visual...");
+  console.log("🚀 Iniciando Bot V3.1.6 - Jules Legacy Hybrid...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
@@ -45,18 +45,23 @@ async function iniciarMonitor() {
     console.log("✅ Login completado.");
 
     while (true) {
-      logEstado = "Escaneando cartelera...";
+      logEstado = "Escaneando...";
       await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      await page.waitForSelector('iframe', { timeout: 60000 });
-      const frameElement = await page.$('iframe');
+      // REFUERZO LEGACY: 20 segundos de espera crítica
+      await new Promise(r => setTimeout(r, 20000)); 
 
+      const frameElement = await page.$('iframe');
       if (frameElement) {
         const frame = await frameElement.contentFrame();
         const data = await frame.evaluate(() => {
-          return Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'))
+          const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, .tribe-events-calendar-list__event-title a'))
+            .map(el => el.innerText.trim());
+          const opciones = Array.from(document.querySelectorAll('#select_recinto_event option'))
             .map(el => el.innerText.trim())
-            .filter(n => n !== "");
+            .filter(n => n !== "" && n !== "-- Seleccione --");
+          
+          return [...new Set([...visuales, ...opciones])].filter(n => n.length > 2);
         });
 
         if (data && data.length > 0) {
@@ -75,39 +80,37 @@ async function iniciarMonitor() {
               historialNovedades.forEach(h => h.nuevo = false);
 
               for (const nombre of detectadosAhora) {
+                console.log(`🔎 Procesando nuevo evento: ${nombre}`);
                 try {
-                  await page.screenshot({ path: `debug_01_lista_${nombre.replace(/ /g, '_')}.png` });
-
-                  const handle = await frame.evaluateHandle((n) => {
-                    const link = Array.from(document.querySelectorAll('a')).find(a => a.innerText.includes(n));
+                  const handle = await frame.evaluateHandle(async (n) => {
+                    const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'));
+                    const link = links.find(a => a.innerText.trim().toLowerCase() === n.trim().toLowerCase());
                     if (link) {
+                      link.scrollIntoView({ behavior: 'smooth', block: 'center' });
                       const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
                       return card ? card.querySelector('a.buyBtn') : null;
                     }
+                    return null;
                   }, nombre);
 
                   const btnComprarMaster = handle.asElement();
                   if (btnComprarMaster) {
-                    const popup1Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
+                    const popup1Target = browser.waitForTarget(target => target.opener() === page.target());
                     await btnComprarMaster.click();
-                    const popup1 = await popup1Promise;
-
+                    const newTarget1 = await popup1Target;
+                    const popup1 = await newTarget1.page();
+                    
                     if (popup1) {
-                      await popup1.waitForSelector('a.buyBtn', { timeout: 15000 }).catch(() => {});
-                      await popup1.screenshot({ path: `debug_02_popup_${nombre.replace(/ /g, '_')}.png` });
-
+                      await popup1.waitForSelector('a.buyBtn', { timeout: 20000 });
                       const botones = await popup1.$$('a.buyBtn');
                       if (botones.length >= 2) {
-                        const popup2Promise = new Promise(x => browser.once('targetcreated', target => x(target.page())));
-                        await botones[1].click(); 
-                        const popup2 = await popup2Promise;
-
+                        const popup2Target = browser.waitForTarget(target => target.opener() === newTarget1);
+                        await botones[1].click();
+                        const newTarget2 = await popup2Target;
+                        const popup2 = await newTarget2.page();
                         if (popup2) {
-                          await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {});
-                          const urlFinal = popup2.url();
-                          await popup2.screenshot({ path: `debug_03_pasarela_${nombre.replace(/ /g, '_')}.png` });
-
-                          linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora, timestamp: Date.now() });
+                          await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 45000 }).catch(() => {});
+                          linksDirectos.unshift({ nombre, url: popup2.url(), hora: ahoraHora });
                           await popup2.close();
                         }
                       }
@@ -115,7 +118,7 @@ async function iniciarMonitor() {
                     }
                   }
                   historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
-                } catch (e) { console.log(`Error en ${nombre}: ${e.message}`); }
+                } catch (e) { console.log(`🛑 Error en "${nombre}": ${e.message}`); }
               }
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
@@ -123,7 +126,6 @@ async function iniciarMonitor() {
           }
         }
       }
-
       const espera = obtenerEsperaAleatoria(180, 300);
       logEstado = `Espera (${Math.floor(espera/60)}m ${espera%60}s)`;
       await new Promise(r => setTimeout(r, espera * 1000)); 
@@ -142,11 +144,7 @@ app.get('/', (req, res) => {
   res.send(`
     <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
       <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
-        <div style="text-align:right; margin-bottom:20px;">
-          <button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">
-            🔇 Activar Sonido
-          </button>
-        </div>
+        <div style="text-align:right; margin-bottom:20px;"><button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">🔇 Activar Sonido</button></div>
         <header style="text-align:center; margin-bottom:40px;">
           <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase;">Eventos Totales</div>
           <div style="font-size:6em; font-weight:bold; color:#B9C800;">${listaLimpia.length}</div>
@@ -155,13 +153,7 @@ app.get('/', (req, res) => {
         <section style="margin-bottom:30px;">
           <h3 style="color:#00ff00; border-left:4px solid #00ff00; padding-left:10px;">🚀 Links Directos</h3>
           <div style="background:#001a00; border:1px solid #00ff00; padding:20px; border-radius:12px;">
-            ${linksDirectos.map(l => `
-              <div style="margin-bottom:10px;">
-                <a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; background:#004d00; padding:12px; border-radius:8px; text-align:center; text-decoration:none; border:1px solid #00ff00;">
-                  ${l.nombre} [${l.hora}]
-                </a>
-              </div>
-            `).join('') || '<p>Esperando novedades...</p>'}
+            ${linksDirectos.map(l => `<div style="margin-bottom:10px;"><a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; background:#004d00; padding:12px; border-radius:8px; text-align:center; text-decoration:none; border:1px solid #00ff00;">${l.nombre} [${l.hora}]</a></div>`).join('') || '<p>Esperando novedades...</p>'}
           </div>
         </section>
         <section>
@@ -174,37 +166,22 @@ app.get('/', (req, res) => {
       <script>
         let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
         let audioCtx;
-        
         function updateBtn() {
             const btn = document.getElementById('btnSonido');
             btn.innerText = sonidoActivado ? '🔊 Sonido Activo' : '🔇 Activar Sonido';
             btn.style.background = sonidoActivado ? '#00ff00' : '#444';
         }
         updateBtn();
-
         function toggleSonido() {
           sonidoActivado = !sonidoActivado;
           sessionStorage.setItem('sonidoLocal', sonidoActivado);
           updateBtn();
-          if (sonidoActivado) {
-            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            audioCtx.resume();
-            playBeep();
-          }
+          if (sonidoActivado) { if (!audioCtx) audioCtx = new AudioContext(); audioCtx.resume(); }
         }
-
-        function playBeep() {
-          if (!sonidoActivado || !audioCtx) return;
-          const osc = audioCtx.createOscillator();
-          osc.connect(audioCtx.destination);
-          osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-          osc.start();
-          setTimeout(() => osc.stop(), 200);
-        }
-
         if (${hayNovedad} && sonidoActivado) {
-          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          setTimeout(playBeep, 1000);
+          if (!audioCtx) audioCtx = new AudioContext();
+          const osc = audioCtx.createOscillator(); osc.connect(audioCtx.destination);
+          osc.frequency.setValueAtTime(880, audioCtx.currentTime); osc.start(); setTimeout(() => osc.stop(), 200);
         }
         setTimeout(() => location.reload(), 60000);
       </script>
@@ -213,4 +190,4 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0', () => console.log(`Servidor iniciado en puerto ${PORT}`));
+app.listen(PORT, '0.0.0.0');
