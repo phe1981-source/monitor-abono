@@ -1,5 +1,6 @@
 const puppeteer = require('puppeteer');
 const express = require('express');
+const { extraerLinkCompra } = require('./extractor'); // Importamos la lógica externa
 const app = express();
 
 const USER = 'phe1981@gmail.com';
@@ -16,7 +17,7 @@ function obtenerEsperaAleatoria(min, max) {
 }
 
 async function iniciarMonitor() {
-  console.log("🚀 [SISTEMA] Iniciando Bot V3.2.2 - Alarma Prioritaria");
+  console.log("🚀 [SISTEMA] Iniciando Bot V3.3.0 - Arquitectura Modular");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled']
@@ -85,51 +86,21 @@ async function iniciarMonitor() {
             if (detectadosAhora.length > 0) {
               console.log(`🔔 [ALERTA] Se han detectado ${detectadosAhora.length} novedades!`);
               
-              // PASO 1: ACTIVAR ALARMA INMEDIATAMENTE
+              // 1. REGISTRO INMEDIATO PARA ALARMA VISUAL/SONORA
               historialNovedades.forEach(h => h.nuevo = false);
               for (const nombre of detectadosAhora) {
                 historialNovedades.unshift({ nombre, hora: ahoraHora, nuevo: true });
               }
 
-              // PASO 2: INTENTAR BUSCAR LINKS (SIN BLOQUEAR LA ALARMA)
+              // 2. EXTRACCIÓN DE LINKS (Llamada al módulo externo)
               for (const nombre of detectadosAhora) {
-                console.log(`🔎 [EXTRACTOR] Intentando obtener link para: ${nombre}`);
-                try {
-                  const clicExitoso = await frame.evaluate((n) => {
-                    const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, a'));
-                    // Búsqueda más flexible por texto contenido
-                    const target = links.find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
-                    if (target) {
-                      target.scrollIntoView();
-                      target.click();
-                      return true;
-                    }
-                    return false;
-                  }, nombre);
-
-                  if (clicExitoso) {
-                    const target1 = await browser.waitForTarget(t => t.opener() === page.target(), { timeout: 10000 });
-                    const page1 = await target1.page();
-
-                    if (page1) {
-                      await page1.waitForSelector('a.buyBtn', { timeout: 10000 });
-                      const botones = await page1.$$('a.buyBtn');
-                      
-                      if (botones.length >= 2) {
-                        const target2Promise = browser.waitForTarget(t => t.opener() === target1.target(), { timeout: 10000 });
-                        await botones[1].click();
-                        const page2 = await target2Promise.page();
-
-                        if (page2) {
-                          linksDirectos.unshift({ nombre, url: page2.url(), hora: ahoraHora });
-                          await page2.close().catch(() => {});
-                        }
-                      }
-                      await page1.close().catch(() => {});
-                    }
-                  }
-                } catch (e) { 
-                  console.log(`🛑 [LINK FAIL] No se obtuvo link para "${nombre}", pero la alarma visual ya está activa.`); 
+                const resultado = await extraerLinkCompra(browser, page, frame, nombre);
+                
+                if (resultado.url) {
+                  console.log(`✅ [SUCCESS] Link capturado para ${nombre}`);
+                  linksDirectos.unshift({ nombre, url: resultado.url, hora: ahoraHora });
+                } else {
+                  console.log(`🛑 [DETALLE] ${nombre}: ${resultado.error}`);
                 }
               }
             }
@@ -153,6 +124,7 @@ async function iniciarMonitor() {
 
 iniciarMonitor();
 
+// RUTA DASHBOARD
 app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   res.send(`
@@ -195,8 +167,6 @@ app.get('/', (req, res) => {
           updateBtn();
           if (sonidoActivado) { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); }
         }
-        
-        // LOGICA DE ALARMA MEJORADA (DOBLE BIP)
         if (${hayNovedad} && sonidoActivado) {
           const context = new (window.AudioContext || window.webkitAudioContext)();
           const sonar = (delay) => {
@@ -218,13 +188,12 @@ app.get('/', (req, res) => {
   `);
 });
 
+// RUTA TEST
 app.get('/test-alarma', (req, res) => {
     if (listaLimpia.length > 0) {
         const eliminado = listaLimpia.shift();
-        res.send(`<h3>Simulacro Activado</h3><p>Se ha borrado: <b>${eliminado.nombre}</b>.</p><p>En el próximo escaneo saltará la alarma.</p>`);
-    } else {
-        res.send("Espera al primer escaneo exitoso.");
-    }
+        res.send(`<h3>Simulacro Activado</h3><p>Se ha borrado: <b>${eliminado.nombre}</b>.</p>`);
+    } else { res.send("Espera al primer escaneo."); }
 });
 
 const PORT = process.env.PORT || 10000;
