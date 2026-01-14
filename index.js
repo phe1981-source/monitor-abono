@@ -181,23 +181,50 @@ app.get('/', (req, res) => {
       <script>
         let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
         let audioCtx;
+        
+        // Memoria de lo que ya hemos pitado para no repetir en cada refresh
+        let ultimaNovedadPitada = localStorage.getItem('ultimaNovedad');
+        const novedadActual = "${historialNovedades.length > 0 ? historialNovedades[0].timestamp : ''}";
+
         function updateBtn() {
             const btn = document.getElementById('btnSonido');
             btn.innerText = sonidoActivado ? '🔊 Sonido Activo' : '🔇 Activar Sonido';
             btn.style.background = sonidoActivado ? '#00ff00' : '#444';
         }
         updateBtn();
+
         function toggleSonido() {
           sonidoActivado = !sonidoActivado;
           sessionStorage.setItem('sonidoLocal', sonidoActivado);
           updateBtn();
-          if (sonidoActivado) { if (!audioCtx) audioCtx = new AudioContext(); audioCtx.resume(); }
+          if (sonidoActivado) { 
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); 
+            audioCtx.resume(); 
+            // Pitido de confirmación al activar
+            tocarPitido(440, 0.1);
+          }
         }
-        if (${hayNovedad} && sonidoActivado) {
-          if (!audioCtx) audioCtx = new AudioContext();
-          const osc = audioCtx.createOscillator(); osc.connect(audioCtx.destination);
-          osc.frequency.setValueAtTime(880, audioCtx.currentTime); osc.start(); setTimeout(() => osc.stop(), 200);
+
+        function tocarPitido(frecuencia, duracion) {
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          audioCtx.resume().then(() => {
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.frequency.setValueAtTime(frecuencia, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + duracion);
+            osc.start();
+            osc.stop(audioCtx.currentTime + duracion);
+          });
         }
+
+        // Lógica de Alarma: Solo si hay novedad, el sonido está activo Y no hemos pitado esta novedad antes
+        if (${hayNovedad} && sonidoActivado && ultimaNovedadPitada !== novedadActual) {
+          tocarPitido(880, 0.5); // Pitido más largo y claro
+          localStorage.setItem('ultimaNovedad', novedadActual); // Marcar como pitada
+        }
+
         setTimeout(() => location.reload(), 60000);
       </script>
     </body>
