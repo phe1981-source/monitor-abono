@@ -13,11 +13,12 @@ let linksDirectos = [];
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
+// --- PERSISTENCIA (Tu mejora Pro para no repetir alertas) ---
 function saveState() {
   try {
     const data = JSON.stringify({ listaLimpia, historialNovedades, linksDirectos });
     fs.writeFileSync(STATE_FILE, data);
-  } catch (e) { console.error("Error guardando estado:", e.message); }
+  } catch (e) {}
 }
 
 function loadState() {
@@ -27,61 +28,62 @@ function loadState() {
       listaLimpia = s.listaLimpia || [];
       historialNovedades = s.historialNovedades || [];
       linksDirectos = s.linksDirectos || [];
-      console.log("💾 Estado previo recuperado.");
+      console.log("💾 Estado cargado.");
     }
-  } catch (e) { console.log("Iniciando sin estado previo."); }
-}
-
-async function safeClose(p) {
-  if (p && !p.isClosed()) { try { await p.close(); } catch (e) {} }
+  } catch (e) {}
 }
 
 loadState();
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Jules V4.2 - Ultra Stable (Anti-Timeout)...");
+  console.log("🚀 Iniciando Jules V4.3 - Legacy Hybrid...");
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
   });
   
   const page = await browser.newPage();
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36');
-  // Timeout global más largo para evitar los errores de tus logs
-  page.setDefaultNavigationTimeout(120000); 
+  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   try {
-    logEstado = "Login...";
-    console.log("Accediendo a login...");
-    // Usamos 'domcontentloaded' para ser más rápidos y evitar bloqueos por scripts externos
-    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded' });
+    logEstado = "Intentando Login...";
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 90000 });
     
-    await page.waitForSelector('#nabonadologin', { visible: true, timeout: 30000 });
+    // Aceptar Cookies (Tu lógica original)
+    await page.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Aceptar'));
+      if (btn) btn.click();
+    }).catch(() => {});
+
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
     
-    console.log("Enviando credenciales...");
     await Promise.all([
-      page.click('input[value="Entrar"]'),
-      page.waitForNavigation({ waitUntil: 'networkidle0' }).catch(e => console.log("Nota: Navegación post-login lenta, continuando..."))
+      page.click('input[value="Entrar"].buyBtn'),
+      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 90000 })
     ]);
 
-    console.log("✅ Sesión iniciada.");
+    console.log("✅ Login completado.");
 
     while (true) {
       logEstado = "Escaneando...";
-      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' });
+      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      // Tiempo para que el iframe se digne a cargar
-      await new Promise(r => setTimeout(r, 25000)); 
+      // REFUERZO LEGACY: Tus 20 segundos críticos de espera
+      await new Promise(r => setTimeout(r, 20000)); 
 
-      const frameElement = await page.$('iframe[src*="abonoteatro"], iframe[src*="tribe-events"]');
+      const frameElement = await page.$('iframe');
       if (frameElement) {
         const frame = await frameElement.contentFrame();
         const data = await frame.evaluate(() => {
-          const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).map(el => el.innerText.trim());
-          const options = Array.from(document.querySelectorAll('#select_recinto_event option')).map(el => el.innerText.trim()).filter(n => n.length > 2 && !n.includes("Seleccione"));
-          return [...new Set([...links, ...options])];
+          // Tus selectores originales (V3.1.6) que son más resistentes
+          const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, .tribe-events-calendar-list__event-title a'))
+            .map(el => el.innerText.trim());
+          const opciones = Array.from(document.querySelectorAll('#select_recinto_event option'))
+            .map(el => el.innerText.trim())
+            .filter(n => n !== "" && n !== "-- Seleccione --");
+          
+          return [...new Set([...visuales, ...opciones])].filter(n => n.length > 2);
         });
 
         if (data && data.length > 0) {
@@ -100,39 +102,46 @@ async function iniciarMonitor() {
               historialNovedades.forEach(h => h.nuevo = false);
 
               for (const nombre of detectadosAhora) {
-                console.log(`✨ Novedad: ${nombre}`);
-                let p1 = null, p2 = null;
-                const ts = Date.now();
-
+                console.log(`🔎 Nuevo: ${nombre}`);
                 try {
-                  const p1Promise = page.waitForEvent('popup', { timeout: 25000 });
-                  await frame.evaluate((n) => {
-                    const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).find(a => a.innerText.trim().toLowerCase() === n.toLowerCase());
-                    if (el) el.click();
+                  // Tu lógica de clicks en cascada (Popup 1 -> Popup 2)
+                  const handle = await frame.evaluateHandle(async (n) => {
+                    const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'));
+                    const link = links.find(a => a.innerText.trim().toLowerCase() === n.trim().toLowerCase());
+                    if (link) {
+                      link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                      const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
+                      return card ? card.querySelector('a.buyBtn') : null;
+                    }
+                    return null;
                   }, nombre);
-                  p1 = await p1Promise;
 
-                  if (p1) {
-                    await p1.waitForSelector('a.buyBtn', { visible: true, timeout: 20000 });
-                    const btns = await p1.$$('a.buyBtn');
-                    if (btns.length >= 2) {
-                      const p2Promise = p1.waitForEvent('popup', { timeout: 25000 });
-                      await btns[1].click();
-                      p2 = await p2Promise;
-                      if (p2) {
-                        await p2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(()=>{});
-                        linksDirectos.unshift({ nombre, url: p2.url(), hora: ahoraHora });
+                  const btnComprar = handle.asElement();
+                  if (btnComprar) {
+                    const p1T = browser.waitForTarget(t => t.opener() === page.target());
+                    await btnComprar.click();
+                    const p1 = await (await p1T).page();
+                    
+                    if (p1) {
+                      await p1.waitForSelector('a.buyBtn', { timeout: 20000 });
+                      const btns = await p1.$$('a.buyBtn');
+                      if (btns.length >= 2) {
+                        const p2T = browser.waitForTarget(t => t.opener() === (await p1T));
+                        await btns[1].click();
+                        const p2 = await (await p2T).page();
+                        if (p2) {
+                          await p2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 45000 }).catch(() => {});
+                          linksDirectos.unshift({ nombre, url: p2.url(), hora: ahoraHora });
+                          await p2.close();
+                        }
                       }
+                      await p1.close();
                     }
                   }
-                } catch (e) { console.log(`⚠️ Link no extraído para ${nombre}`); }
-                finally {
-                  await safeClose(p2);
-                  await safeClose(p1);
-                }
-                historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: ts, nuevo: true });
-                saveState();
+                  historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
+                } catch (e) { console.log(`Error en ${nombre}`); }
               }
+              saveState();
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
@@ -140,35 +149,36 @@ async function iniciarMonitor() {
           }
         }
       }
-      
-      const espera = Math.floor(Math.random() * (240 - 90 + 1) + 90);
-      logEstado = `Espera ${Math.floor(espera/60)}m...`;
+      // Tu rango de espera aleatoria original
+      const espera = Math.floor(Math.random() * (300 - 180 + 1) + 180);
+      logEstado = `Espera (${Math.floor(espera/60)}m ${espera%60}s)`;
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
   } catch (error) {
-    console.error("❌ FALLO EN BUCLE:", error.message);
+    console.log("❌ ERROR:", error.message);
     if (browser) await browser.close();
-    setTimeout(iniciarMonitor, 20000); 
+    setTimeout(iniciarMonitor, 30000); 
   }
 }
 
 iniciarMonitor();
 
+// Dashboard (Tu interfaz con la lógica de sonido que ya tenías)
 app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   res.send(`
     <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
       <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
-        <div style="text-align:right; margin-bottom:20px;"><button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">🔇 Inactivo</button></div>
+        <div style="text-align:right; margin-bottom:20px;"><button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">🔇 Activar Sonido</button></div>
         <header style="text-align:center; margin-bottom:40px;">
-          <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase;">Eventos</div>
+          <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase;">Eventos Totales</div>
           <div style="font-size:6em; font-weight:bold; color:#B9C800;">${listaLimpia.length}</div>
           <p>Estado: ${logEstado} | Sincro: ${ultimaActualizacion}</p>
         </header>
         <section style="margin-bottom:30px;">
-          <h3 style="color:#00ff00; border-left:4px solid #00ff00; padding-left:10px;">🚀 Links Pasarela</h3>
+          <h3 style="color:#00ff00; border-left:4px solid #00ff00; padding-left:10px;">🚀 Links Directos</h3>
           <div style="background:#001a00; border:1px solid #00ff00; padding:20px; border-radius:12px;">
-            ${linksDirectos.slice(0, 5).map(l => `<div style="margin-bottom:10px;"><a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; background:#004d00; padding:12px; border-radius:8px; text-align:center; text-decoration:none; border:1px solid #00ff00;">${l.nombre} [${l.hora}]</a></div>`).join('') || '<p>Esperando...</p>'}
+            ${linksDirectos.map(l => `<div style="margin-bottom:10px;"><a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; background:#004d00; padding:12px; border-radius:8px; text-align:center; text-decoration:none; border:1px solid #00ff00;">${l.nombre} [${l.hora}]</a></div>`).join('') || '<p>Esperando novedades...</p>'}
           </div>
         </section>
         <section>
@@ -181,34 +191,22 @@ app.get('/', (req, res) => {
       <script>
         let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
         let audioCtx;
-        const uPitada = localStorage.getItem('uPitada');
-        const tsActual = "${historialNovedades.length > 0 ? historialNovedades[0].timestamp : ''}";
-
         function updateBtn() {
             const btn = document.getElementById('btnSonido');
-            btn.innerText = sonidoActivado ? '🔊 Activo' : '🔇 Inactivo';
+            btn.innerText = sonidoActivado ? '🔊 Sonido Activo' : '🔇 Activar Sonido';
             btn.style.background = sonidoActivado ? '#00ff00' : '#444';
         }
         updateBtn();
-
         function toggleSonido() {
           sonidoActivado = !sonidoActivado;
           sessionStorage.setItem('sonidoLocal', sonidoActivado);
           updateBtn();
-          if (sonidoActivado && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+          if (sonidoActivado) { if (!audioCtx) audioCtx = new AudioContext(); audioCtx.resume(); }
         }
-
-        if (${hayNovedad} && sonidoActivado && uPitada !== tsActual) {
-          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          audioCtx.resume().then(() => {
-            const osc = audioCtx.createOscillator();
-            const g = audioCtx.createGain();
-            osc.connect(g); g.connect(audioCtx.destination);
-            osc.frequency.setValueAtTime(880, audioCtx.currentTime);
-            g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
-            osc.start(); osc.stop(audioCtx.currentTime + 0.5);
-            localStorage.setItem('uPitada', tsActual);
-          });
+        if (${hayNovedad} && sonidoActivado) {
+          if (!audioCtx) audioCtx = new AudioContext();
+          const osc = audioCtx.createOscillator(); osc.connect(audioCtx.destination);
+          osc.frequency.setValueAtTime(880, audioCtx.currentTime); osc.start(); setTimeout(() => osc.stop(), 200);
         }
         setTimeout(() => location.reload(), 60000);
       </script>
