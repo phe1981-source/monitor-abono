@@ -7,145 +7,164 @@ const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@';
 
 let listaLimpia = []; 
 let historialNovedades = []; 
+let linksDirectos = []; 
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
+function obtenerEsperaAleatoria(min, max) {
+  return Math.floor(Math.random() * (max - min + 1) + min);
+}
+
 async function iniciarMonitor() {
-  console.log("🚀 [SISTEMA] Iniciando Monitor V6.1 - Modo Debug");
+  console.log("🚀 Iniciando Bot V3.2.0 - Jules Hyperlink Edition...");
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled']
   });
   
   const page = await browser.newPage();
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-  await page.setDefaultNavigationTimeout(120000); 
 
   try {
-    logEstado = "Realizando Login...";
-    console.log("⏳ [LOGIN] Accediendo a la web...");
-    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2' });
+    logEstado = "Intentando Login...";
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 90000 });
     
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
-    console.log("🔑 [LOGIN] Credenciales escritas, enviando...");
-    await page.click('input[value="Entrar"].buyBtn');
     
-    await page.waitForSelector('iframe', { timeout: 120000 });
-    console.log("✅ [LOGIN] Login OK - Iframe detectado");
+    await Promise.all([
+      page.click('input[value="Entrar"].buyBtn'),
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 })
+    ]);
+
+    console.log("✅ Login completado.");
 
     while (true) {
-      logEstado = "Escaneando cartelera...";
-      console.log("📡 [SCAN] Navegando a sección teatro...");
-      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' });
+      logEstado = "Escaneando...";
+      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      console.log("⏱️ [SCAN] Esperando 20s para carga de contenido...");
+      // Espera para que el iframe cargue contenido interno
       await new Promise(r => setTimeout(r, 20000)); 
 
       const frameElement = await page.$('iframe');
       if (frameElement) {
-        console.log("🖼️ [SCAN] Accediendo al contenido del Iframe...");
         const frame = await frameElement.contentFrame();
-        
+        // Extraemos nombres
         const data = await frame.evaluate(() => {
-          const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'))
-                             .map(el => el.innerText.trim());
-          return [...new Set(links)].filter(n => n.length > 2);
+          const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, .tribe-events-calendar-list__event-title a')).map(el => el.innerText.trim());
+          const opciones = Array.from(document.querySelectorAll('#select_recinto_event option')).map(el => el.innerText.trim()).filter(n => n !== "" && n !== "-- Seleccione --");
+          return [...new Set([...visuales, ...opciones])].filter(n => n.length > 2);
         });
 
-        console.log(`📊 [SCAN] Datos extraídos: ${data.length} eventos encontrados.`);
-
         if (data && data.length > 0) {
-          const ahora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-          
-          if (listaLimpia.length > 0) {
-            const detectados = data.filter(n => !listaLimpia.includes(n));
-            if (detectados.length > 0) {
-              console.log(`🔔 [ALERTA] ${detectados.length} novedades detectadas!`);
-              detectados.forEach(nombre => {
-                historialNovedades.unshift({ nombre, hora: ahora, nuevo: true });
-              });
-            }
+          console.log(`📊 Escaneados ${data.length} eventos.`);
+          const nombresActuales = [...new Set(data)];
+          const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+          if (listaLimpia.length === 0) {
+            listaLimpia = nombresActuales.map(n => ({ nombre: n }));
+            ultimaActualizacion = ahoraHora;
           } else {
-            console.log("📦 [SISTEMA] Primera carga de datos completada.");
+            const anteriorNombres = listaLimpia.map(item => item.nombre);
+            const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
+
+            if (detectadosAhora.length > 0) {
+              historialNovedades.forEach(h => h.nuevo = false);
+
+              for (const nombre of detectadosAhora) {
+                console.log(`🔎 Jules extrayendo link para: ${nombre}`);
+                try {
+                  // CLICK EN EL TÍTULO
+                  const clicExitoso = await frame.evaluate((n) => {
+                    const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'));
+                    const target = links.find(a => a.innerText.trim().toLowerCase() === n.toLowerCase());
+                    if (target) { target.scrollIntoView(); target.click(); return true; }
+                    return false;
+                  }, nombre);
+
+                  if (clicExitoso) {
+                    // ESPERAR POPUP 1 (Info)
+                    const newTarget = await browser.waitForTarget(t => t.opener() === page.target(), { timeout: 15000 });
+                    const page1 = await newTarget.page();
+                    if (page1) {
+                      await page1.waitForSelector('a.buyBtn', { timeout: 15000 });
+                      const botones = await page1.$$('a.buyBtn');
+                      if (botones.length >= 2) {
+                        // CLICK COMPRAR -> ESPERAR POPUP 2 (Pasarela)
+                        const target2Promise = browser.waitForTarget(t => t.opener() === newTarget, { timeout: 15000 });
+                        await botones[1].click();
+                        const page2 = await (await target2Promise).page();
+                        if (page2) {
+                          await page2.waitForNavigation({ waitUntil: 'networkidle2', timeout: 20000 }).catch(() => {});
+                          linksDirectos.unshift({ nombre, url: page2.url(), hora: ahoraHora });
+                          await page2.close();
+                        }
+                      }
+                      await page1.close();
+                    }
+                  }
+                } catch (e) { console.log(`🛑 Error link "${nombre}": ${e.message}`); }
+                historialNovedades.unshift({ nombre, hora: ahoraHora, nuevo: true });
+              }
+            }
+            listaLimpia = nombresActuales.map(n => ({ nombre: n }));
+            ultimaActualizacion = ahoraHora;
           }
-          
-          listaLimpia = data;
-          ultimaActualizacion = ahora;
-          logEstado = "En espera (90s)";
-        } else {
-          console.log("⚠️ [WARN] El Iframe devolvió 0 eventos. ¿Está vacío?");
-          logEstado = "Error: Iframe vacío";
         }
-      } else {
-        console.log("❌ [ERROR] No se encontró el Iframe en la página de teatro.");
-        logEstado = "Error: Sin Iframe";
       }
-      
-      console.log("😴 [SLEEP] Ciclo terminado. Durmiendo 90 segundos...");
-      await new Promise(r => setTimeout(r, 90000));
+      const espera = obtenerEsperaAleatoria(120, 180);
+      logEstado = `Espera ${Math.floor(espera/60)}m...`;
+      await new Promise(r => setTimeout(r, espera * 1000)); 
     }
   } catch (error) {
-    console.log("❌ [CRITICAL] Error en el monitor:", error.message);
-    logEstado = "Error crítico: Reiniciando...";
-    await browser.close().catch(() => {});
-    setTimeout(iniciarMonitor, 15000);
+    console.log("❌ ERROR:", error.message);
+    if (browser) await browser.close();
+    setTimeout(iniciarMonitor, 30000); 
   }
 }
 
 iniciarMonitor();
 
-// INTERFAZ
 app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   res.send(`
-    <body style="background:#000; color:#fff; font-family:sans-serif; text-align:center; padding:30px;">
-      <div style="max-width:500px; margin:auto; border:1px solid #333; padding:20px; border-radius:20px; background:#050505;">
-        <h3 style="color:#B9C800; margin-bottom:5px;">MONITOR ACTIVO</h3>
-        <div style="font-size:7em; font-weight:bold; color:#B9C800;">${listaLimpia.length}</div>
-        <p style="color:#888; margin-top:0;">Eventos Detectados</p>
-        <div style="background:#111; padding:10px; border-radius:10px; margin:15px 0; font-size:0.9em;">
-          <p>Estado: <span style="color:#fff;">${logEstado}</span></p>
-          <p>Sincro: <span style="color:#fff;">${ultimaActualizacion}</span></p>
-        </div>
-        
-        <button id="btnAudio" onclick="enableAudio()" style="width:100%; padding:15px; background:#B9C800; color:#000; border:none; border-radius:10px; font-weight:bold; cursor:pointer;">
-           🔊 CONECTAR ALARMA SONORA
-        </button>
-
-        <div style="margin-top:25px; text-align:left;">
-          <h4 style="color:orange; border-bottom:1px solid #222; padding-bottom:5px;">🔔 ÚLTIMOS CAMBIOS</h4>
-          <div style="max-height:150px; overflow-y:auto;">
-            ${historialNovedades.length === 0 ? '<p style="color:#444;">No hay cambios todavía</p>' : 
-              historialNovedades.map(h => `<p style="font-size:0.85em; margin:5px 0; ${h.nuevo ? 'color:#ff4444; font-weight:bold;' : 'color:#666;'}">[${h.hora}] ${h.nombre}</p>`).join('')}
+    <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
+      <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
+        <div style="text-align:right; margin-bottom:20px;"><button id="btnSonido" onclick="toggleSonido()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">Activar Sonido</button></div>
+        <header style="text-align:center; margin-bottom:40px;">
+          <div style="font-size:6em; font-weight:bold; color:#B9C800;">${listaLimpia.length}</div>
+          <p>Estado: ${logEstado} | Sincro: ${ultimaActualizacion}</p>
+        </header>
+        <section style="margin-bottom:30px;">
+          <h3 style="color:#00ff00;">🚀 Links Directos</h3>
+          <div style="background:#111; padding:15px; border-radius:12px; border:1px solid #00ff00;">
+            ${linksDirectos.map(l => `<a href="${l.url}" target="_blank" style="display:block; color:#fff; background:#004d00; padding:10px; margin-bottom:5px; border-radius:8px; text-decoration:none; text-align:center;">${l.nombre}</a>`).join('') || 'Esperando...'}
           </div>
-        </div>
+        </section>
+        <section>
+          <h3 style="color:orange;">🔔 Historial</h3>
+          <div style="background:#111; padding:15px; border-radius:12px; max-height:200px; overflow-y:auto;">
+            ${historialNovedades.map(h => `<p style="${h.nuevo ? 'color:red; font-weight:bold;' : 'color:#888;'}">[${h.hora}] ${h.nombre}</p>`).join('')}
+          </div>
+        </section>
       </div>
-
       <script>
-        let audioHabilitado = sessionStorage.getItem('audioOk') === 'true';
-        if(audioHabilitado) {
-          const b = document.getElementById('btnAudio');
-          b.style.background = '#333'; b.style.color = '#00ff00'; b.innerText = '✅ SONIDO ACTIVADO';
+        let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
+        function updateBtn() {
+            const btn = document.getElementById('btnSonido');
+            btn.innerText = sonidoActivado ? '🔊 Sonido Activo' : '🔇 Activar Sonido';
+            btn.style.background = sonidoActivado ? '#00ff00' : '#444';
         }
-
-        function enableAudio() {
-          sessionStorage.setItem('audioOk', 'true');
-          // Forzar inicialización de AudioContext por gesto del usuario
-          const ctx = new (window.AudioContext || window.webkitAudioContext)();
-          location.reload();
+        updateBtn();
+        function toggleSonido() {
+          sonidoActivado = !sonidoActivado;
+          sessionStorage.setItem('sonidoLocal', sonidoActivado);
+          updateBtn();
+          if(sonidoActivado) { const a = new AudioContext(); a.resume(); }
         }
-
-        if (${hayNovedad} && audioHabilitado) {
-          const ctx = new (window.AudioContext || window.webkitAudioContext)();
-          const o = ctx.createOscillator();
-          const g = ctx.createGain();
-          o.connect(g); g.connect(ctx.destination);
-          o.frequency.value = 880;
-          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.5);
-          o.start(); o.stop(ctx.currentTime + 1.5);
+        if (${hayNovedad} && sonidoActivado) {
+          const ctx = new AudioContext(); const o = ctx.createOscillator(); o.connect(ctx.destination); o.start(); setTimeout(()=>o.stop(),600);
         }
-
         setTimeout(() => location.reload(), 45000);
       </script>
     </body>
