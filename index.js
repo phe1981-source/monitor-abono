@@ -13,7 +13,6 @@ let linksDirectos = [];
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
-// --- PERSISTENCIA (Tu mejora Pro para no repetir alertas) ---
 function saveState() {
   try {
     const data = JSON.stringify({ listaLimpia, historialNovedades, linksDirectos });
@@ -36,7 +35,7 @@ function loadState() {
 loadState();
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Jules V4.3 - Legacy Hybrid...");
+  console.log("🚀 Iniciando Jules V4.3.1 - Syntax Fixed...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
@@ -49,7 +48,6 @@ async function iniciarMonitor() {
     logEstado = "Intentando Login...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 90000 });
     
-    // Aceptar Cookies (Tu lógica original)
     await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Aceptar'));
       if (btn) btn.click();
@@ -69,14 +67,12 @@ async function iniciarMonitor() {
       logEstado = "Escaneando...";
       await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       
-      // REFUERZO LEGACY: Tus 20 segundos críticos de espera
       await new Promise(r => setTimeout(r, 20000)); 
 
       const frameElement = await page.$('iframe');
       if (frameElement) {
         const frame = await frameElement.contentFrame();
         const data = await frame.evaluate(() => {
-          // Tus selectores originales (V3.1.6) que son más resistentes
           const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, .tribe-events-calendar-list__event-title a'))
             .map(el => el.innerText.trim());
           const opciones = Array.from(document.querySelectorAll('#select_recinto_event option'))
@@ -104,7 +100,6 @@ async function iniciarMonitor() {
               for (const nombre of detectadosAhora) {
                 console.log(`🔎 Nuevo: ${nombre}`);
                 try {
-                  // Tu lógica de clicks en cascada (Popup 1 -> Popup 2)
                   const handle = await frame.evaluateHandle(async (n) => {
                     const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'));
                     const link = links.find(a => a.innerText.trim().toLowerCase() === n.trim().toLowerCase());
@@ -120,15 +115,18 @@ async function iniciarMonitor() {
                   if (btnComprar) {
                     const p1T = browser.waitForTarget(t => t.opener() === page.target());
                     await btnComprar.click();
-                    const p1 = await (await p1T).page();
+                    const target1 = await p1T;
+                    const p1 = await target1.page();
                     
                     if (p1) {
                       await p1.waitForSelector('a.buyBtn', { timeout: 20000 });
                       const btns = await p1.$$('a.buyBtn');
                       if (btns.length >= 2) {
-                        const p2T = browser.waitForTarget(t => t.opener() === (await p1T));
+                        // CORRECCIÓN SINTAXIS AQUÍ:
+                        const p2T = browser.waitForTarget(t => t.opener() === target1);
                         await btns[1].click();
-                        const p2 = await (await p2T).page();
+                        const target2 = await p2T;
+                        const p2 = await target2.page();
                         if (p2) {
                           await p2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 45000 }).catch(() => {});
                           linksDirectos.unshift({ nombre, url: p2.url(), hora: ahoraHora });
@@ -149,7 +147,6 @@ async function iniciarMonitor() {
           }
         }
       }
-      // Tu rango de espera aleatoria original
       const espera = Math.floor(Math.random() * (300 - 180 + 1) + 180);
       logEstado = `Espera (${Math.floor(espera/60)}m ${espera%60}s)`;
       await new Promise(r => setTimeout(r, espera * 1000)); 
@@ -163,7 +160,6 @@ async function iniciarMonitor() {
 
 iniciarMonitor();
 
-// Dashboard (Tu interfaz con la lógica de sonido que ya tenías)
 app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   res.send(`
@@ -201,10 +197,10 @@ app.get('/', (req, res) => {
           sonidoActivado = !sonidoActivado;
           sessionStorage.setItem('sonidoLocal', sonidoActivado);
           updateBtn();
-          if (sonidoActivado) { if (!audioCtx) audioCtx = new AudioContext(); audioCtx.resume(); }
+          if (sonidoActivado) { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); }
         }
         if (${hayNovedad} && sonidoActivado) {
-          if (!audioCtx) audioCtx = new AudioContext();
+          if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
           const osc = audioCtx.createOscillator(); osc.connect(audioCtx.destination);
           osc.frequency.setValueAtTime(880, audioCtx.currentTime); osc.start(); setTimeout(() => osc.stop(), 200);
         }
