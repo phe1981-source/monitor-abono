@@ -213,4 +213,13 @@ app.get('/', (req, res) => {
 });
 
 const PORT = process.env.PORT || 10000;
+// RUTA DE TEST: Escribe tu-url.com/test-alarma para borrar un evento y forzar la alerta
+app.get('/test-alarma', (req, res) => {
+    if (listaLimpia.length > 0) {
+        const eliminado = listaLimpia.shift(); // Borra el primer evento de la lista en memoria
+        res.send(`<h3>Simulacro Activado</h3><p>Se ha borrado de memoria: <b>${eliminado.nombre}</b>.</p><p>En el próximo escaneo, Jules lo detectará como "Novedad" y debería sonar la alarma.</p>`);
+    } else {
+        res.send("La lista aún está vacía. Espera a que el bot haga el primer escaneo con éxito.");
+    }
+});
 app.listen(PORT, '0.0.0.0');
