@@ -80,6 +80,52 @@ async function iniciarMonitor() {
           const nombresActuales = [...new Set(data)];
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
+          // --- MODO PRUEBA para "LOSER" ---
+          const nombreTest = "LOSER";
+          if (nombresActuales.some(n => n.toUpperCase().includes(nombreTest))) {
+              console.log(`🔎 MODO PRUEBA: Detectado "${nombreTest}". Intentando captura de URL...`);
+              let popup1 = null, popup2 = null;
+              try {
+                console.log(`🔎 Capturando URL para: ${nombreTest}...`);
+                const p1Promise = page.waitForEvent('popup', { timeout: 15000 });
+                await frame.evaluate((n) => {
+                  const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).find(a => a.innerText.trim().toUpperCase().includes(n));
+                  if (el) el.click();
+                }, nombreTest);
+                popup1 = await p1Promise;
+                console.log('✅ Popup 1 detectado.');
+
+                if (popup1) {
+                  await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 15000 });
+                  const btns = await popup1.$$('a.buyBtn');
+                   console.log(`✅ Encontrados ${btns.length} botones de compra.`);
+                  if (btns.length >= 2) {
+                    const p2Promise = popup1.waitForEvent('popup', { timeout: 15000 });
+                    await btns[1].click();
+                    console.log('✅ Click en el segundo botón de compra.');
+                    popup2 = await p2Promise;
+                     console.log('✅ Popup 2 detectado.');
+                    if (popup2) {
+                      await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }).catch(()=>{});
+                      const finalUrl = popup2.url();
+                      console.log(`✅ MODO PRUEBA: URL capturada para "${nombreTest}": ${finalUrl}`);
+                    }
+                  }
+                }
+              } catch (e) {
+                console.log(`🛑 MODO PRUEBA: URL fallida para ${nombreTest}: ${e.stack}`);
+                const timestamp = new Date().toISOString().replace(/:/g, '-');
+                const screenshotPath = `error_capture_TEST_${timestamp}.png`;
+                await page.screenshot({ path: screenshotPath });
+                console.log(`📸 Captura de pantalla del error guardada en ${screenshotPath}`);
+              }
+              finally {
+                await safeClose(popup2);
+                await safeClose(popup1);
+              }
+          }
+          // --- FIN MODO PRUEBA ---
+
           if (listaLimpia.length === 0) {
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             saveState();
