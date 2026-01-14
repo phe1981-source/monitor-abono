@@ -39,13 +39,14 @@ async function safeClose(p) {
 loadState();
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Jules V4.3.1 - Professional Persistence...");
+  console.log("🚀 Iniciando Jules V4.4 - Debug Visual & Auto-Retry...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
   });
   
   const page = await browser.newPage();
+  await page.setViewport({ width: 1280, height: 800 });
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   try {
@@ -65,38 +66,76 @@ async function iniciarMonitor() {
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 })
     ]);
 
-    // FUNCIÓN MODULAR DE CAPTURA
-    async function captureUrlForShow(nombre, isTest = false, frame) {
+    // FUNCIÓN MODULAR CON REINTENTOS Y DEBUG VISUAL
+    async function captureUrlForShow(nombre, isTest = false, frame, attempt = 1) {
       let popup1 = null, popup2 = null;
+      const ts = Date.now();
+      const prefix = isTest ? `TEST_${nombre}` : nombre;
+
       try {
-        const p1Promise = browser.waitForTarget(t => t.opener() === page.target(), {timeout: 15000});
+        console.log(`🔎 [Intento ${attempt}] Iniciando captura para: ${nombre}...`);
         
-        await frame.evaluate((n) => {
+        // Screenshot 1: Antes de buscar el título
+        await page.screenshot({ path: `debug_${prefix}_1_buscando.png` });
+
+        const p1Promise = browser.waitForTarget(t => t.opener() === page.target(), {timeout: 30000});
+        
+        const found = await frame.evaluate((n) => {
             const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'))
                              .find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
-            if (el) el.click();
+            if (el) {
+                el.scrollIntoView();
+                el.click();
+                return true;
+            }
+            return false;
         }, nombre);
+
+        if (!found) {
+            console.log(`⚠️ No se encontró el elemento para ${nombre}`);
+            return null;
+        }
+
+        // Screenshot 2: Justo después del clic
+        await page.screenshot({ path: `debug_${prefix}_2_click_nombre.png` });
 
         const target1 = await p1Promise;
         popup1 = await target1.page();
 
         if (popup1) {
-            await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 15000 });
+            console.log(`✅ Popup 1 detectado para ${nombre}`);
+            await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 20000 });
+            
+            // Screenshot 3: Popup 1 cargado
+            await popup1.screenshot({ path: `debug_${prefix}_3_popup1.png` });
+
             const btns = await popup1.$$('a.buyBtn');
             if (btns.length >= 2) {
-                const p2Promise = browser.waitForTarget(t => t.opener() === target1, {timeout: 15000});
+                const p2Promise = browser.waitForTarget(t => t.opener() === target1, {timeout: 30000});
                 await btns[1].click();
+                
                 const target2 = await p2Promise;
                 popup2 = await target2.page();
+                
                 if (popup2) {
-                    await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }).catch(() => {});
+                    console.log(`✅ Popup 2 (Pasarela) detectado`);
+                    await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {});
+                    
+                    // Screenshot 4: URL Final
+                    await popup2.screenshot({ path: `debug_${prefix}_4_final.png` });
+                    
                     const finalUrl = popup2.url();
                     return finalUrl;
                 }
             }
         }
       } catch (e) {
-          console.log(`🛑 Error capturando ${nombre}: ${e.message}`);
+          console.log(`🛑 Error en Intento ${attempt} para ${nombre}: ${e.message}`);
+          if (attempt < 3) {
+              console.log(`🔄 Reintentando en 5 segundos...`);
+              await new Promise(r => setTimeout(r, 5000));
+              return await captureUrlForShow(nombre, isTest, frame, attempt + 1);
+          }
       } finally {
           await safeClose(popup2);
           await safeClose(popup1);
@@ -107,7 +146,7 @@ async function iniciarMonitor() {
     while (true) {
       logEstado = "Escaneando...";
       await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2', timeout: 90000 });
-      await new Promise(r => setTimeout(r, 20000)); 
+      await new Promise(r => setTimeout(r, 15000)); 
 
       const frameElement = await page.$('iframe');
       if (frameElement) {
@@ -127,6 +166,7 @@ async function iniciarMonitor() {
 
           // MODO PRUEBA "LOSER"
           if (nombresActuales.some(n => n.toUpperCase().includes("LOSER"))) {
+              console.log("🧪 Ejecutando prueba de flujo para LOSER...");
               await captureUrlForShow("LOSER", true, frame);
           }
 
@@ -153,7 +193,7 @@ async function iniciarMonitor() {
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
   } catch (error) {
-    console.log("❌ ERROR:", error.message);
+    console.log("❌ ERROR CRÍTICO:", error.message);
     if (browser) await browser.close();
     setTimeout(iniciarMonitor, 30000); 
   }
