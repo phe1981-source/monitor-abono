@@ -13,7 +13,6 @@ let linksDirectos = [];
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 
-// --- PERSISTENCIA DE ESTADO ---
 function saveState() {
   try {
     const data = JSON.stringify({ listaLimpia, historialNovedades, linksDirectos });
@@ -53,7 +52,7 @@ async function iniciarMonitor() {
 
   try {
     logEstado = "Login...";
-    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 90000 });
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 90000 });
     
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
@@ -62,9 +61,60 @@ async function iniciarMonitor() {
       page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 })
     ]);
 
+    async function captureUrlForShow(nombre, isTest = false) {
+      let popup1 = null, popup2 = null;
+      const logPrefix = isTest ? "MODO PRUEBA:" : "";
+      const errorPrefix = isTest ? "🛑 MODO PRUEBA:" : "🛑";
+      const screenshotPrefix = isTest ? "error_capture_TEST_" : "error_capture_";
+
+      try {
+        console.log(`🔎 ${logPrefix} Capturando URL para: ${nombre}...`);
+        const p1Promise = page.waitForEvent('popup', { timeout: 15000 });
+
+        await frame.evaluate((n) => {
+            const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
+            if (el) el.click();
+        }, nombre);
+
+        popup1 = await p1Promise;
+        console.log('✅ Popup 1 detectado.');
+
+        if (popup1) {
+            await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 15000 });
+            const btns = await popup1.$$('a.buyBtn');
+            console.log(`✅ Encontrados ${btns.length} botones de compra.`);
+
+            if (btns.length >= 2) {
+                const p2Promise = popup1.waitForEvent('popup', { timeout: 15000 });
+                await btns[1].click();
+                console.log('✅ Click en el segundo botón de compra.');
+                popup2 = await p2Promise;
+                console.log('✅ Popup 2 detectado.');
+
+                if (popup2) {
+                    await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }).catch(() => {});
+                    const finalUrl = popup2.url();
+                    console.log(`✅ URL capturada: ${finalUrl}`);
+                    return finalUrl;
+                }
+            }
+        }
+      } catch (e) {
+          console.log(`${errorPrefix} URL fallida para ${nombre}: ${e.stack}`);
+          const timestamp = new Date().toISOString().replace(/:/g, '-');
+          const screenshotPath = `${screenshotPrefix}${timestamp}.png`;
+          await page.screenshot({ path: screenshotPath });
+          console.log(`📸 Captura de pantalla del error guardada en ${screenshotPath}`);
+      } finally {
+          await safeClose(popup2);
+          await safeClose(popup1);
+      }
+      return null;
+    }
+
     while (true) {
       logEstado = "Escaneando...";
-      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
+      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2', timeout: 90000 });
       await new Promise(r => setTimeout(r, 20000)); 
 
       const frameElement = await page.$('iframe[src*="abonoteatro"], iframe[src*="tribe-events"]');
@@ -79,50 +129,13 @@ async function iniciarMonitor() {
         if (data.length > 0) {
           const nombresActuales = [...new Set(data)];
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+          const anteriorNombres = listaLimpia.map(item => item.nombre);
+          const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
           // --- MODO PRUEBA para "LOSER" ---
           const nombreTest = "LOSER";
           if (nombresActuales.some(n => n.toUpperCase().includes(nombreTest))) {
-              console.log(`🔎 MODO PRUEBA: Detectado "${nombreTest}". Intentando captura de URL...`);
-              let popup1 = null, popup2 = null;
-              try {
-                console.log(`🔎 Capturando URL para: ${nombreTest}...`);
-                const p1Promise = page.waitForEvent('popup', { timeout: 15000 });
-                await frame.evaluate((n) => {
-                  const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).find(a => a.innerText.trim().toUpperCase().includes(n));
-                  if (el) el.click();
-                }, nombreTest);
-                popup1 = await p1Promise;
-                console.log('✅ Popup 1 detectado.');
-
-                if (popup1) {
-                  await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 15000 });
-                  const btns = await popup1.$$('a.buyBtn');
-                   console.log(`✅ Encontrados ${btns.length} botones de compra.`);
-                  if (btns.length >= 2) {
-                    const p2Promise = popup1.waitForEvent('popup', { timeout: 15000 });
-                    await btns[1].click();
-                    console.log('✅ Click en el segundo botón de compra.');
-                    popup2 = await p2Promise;
-                     console.log('✅ Popup 2 detectado.');
-                    if (popup2) {
-                      await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }).catch(()=>{});
-                      const finalUrl = popup2.url();
-                      console.log(`✅ MODO PRUEBA: URL capturada para "${nombreTest}": ${finalUrl}`);
-                    }
-                  }
-                }
-              } catch (e) {
-                console.log(`🛑 MODO PRUEBA: URL fallida para ${nombreTest}: ${e.stack}`);
-                const timestamp = new Date().toISOString().replace(/:/g, '-');
-                const screenshotPath = `error_capture_TEST_${timestamp}.png`;
-                await page.screenshot({ path: screenshotPath });
-                console.log(`📸 Captura de pantalla del error guardada en ${screenshotPath}`);
-              }
-              finally {
-                await safeClose(popup2);
-                await safeClose(popup1);
-              }
+              await captureUrlForShow(nombreTest, true);
           }
           // --- FIN MODO PRUEBA ---
 
@@ -130,59 +143,23 @@ async function iniciarMonitor() {
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             saveState();
           } else {
-            const anteriorNombres = listaLimpia.map(item => item.nombre);
-            const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
+            if (detectadosAhora.length > 0) {
+                historialNovedades.forEach(h => h.nuevo = false);
+            }
 
             for (const nombre of detectadosAhora) {
-              console.log(`🔎 Novedad: ${nombre}`);
-              let popup1 = null, popup2 = null;
-
-              try {
-                console.log(`🔎 Capturando URL para: ${nombre}...`);
-                const p1Promise = page.waitForEvent('popup', { timeout: 15000 });
-                await frame.evaluate((n) => {
-                  const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).find(a => a.innerText.trim().toLowerCase() === n.toLowerCase());
-                  if (el) el.click();
-                }, nombre);
-                popup1 = await p1Promise;
-                console.log('✅ Popup 1 detectado.');
-
-                if (popup1) {
-                  await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 15000 });
-                  const btns = await popup1.$$('a.buyBtn');
-                   console.log(`✅ Encontrados ${btns.length} botones de compra.`);
-                  if (btns.length >= 2) {
-                    const p2Promise = popup1.waitForEvent('popup', { timeout: 15000 });
-                    await btns[1].click();
-                    console.log('✅ Click en el segundo botón de compra.');
-                    popup2 = await p2Promise;
-                     console.log('✅ Popup 2 detectado.');
-                    if (popup2) {
-                      await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }).catch(()=>{});
-                      const finalUrl = popup2.url();
-                      linksDirectos.unshift({ nombre, url: finalUrl, hora: ahoraHora });
-                      console.log(`✅ URL capturada: ${finalUrl}`);
-                    }
-                  }
-                }
-              } catch (e) {
-                console.log(`🛑 URL fallida para ${nombre}: ${e.stack}`);
-                const timestamp = new Date().toISOString().replace(/:/g, '-');
-                const screenshotPath = `error_capture_${timestamp}.png`;
-                await page.screenshot({ path: screenshotPath });
-                console.log(`📸 Captura de pantalla del error guardada en ${screenshotPath}`);
+              const finalUrl = await captureUrlForShow(nombre);
+              if (finalUrl) {
+                linksDirectos.unshift({ nombre, url: finalUrl, hora: ahoraHora });
+                historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
               }
-              finally {
-                await safeClose(popup2);
-                await safeClose(popup1);
-              }
-              historialNovedades.forEach(h => h.nuevo = false);
-              historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
-              saveState();
             }
-            listaLimpia = nombresActuales.map(n => ({ nombre: n }));
-            ultimaActualizacion = ahoraHora;
-            saveState();
+
+            if (detectadosAhora.length > 0) {
+                listaLimpia = nombresActuales.map(n => ({ nombre: n }));
+                ultimaActualizacion = ahoraHora;
+                saveState();
+            }
           }
         }
       }
@@ -199,7 +176,6 @@ async function iniciarMonitor() {
 
 iniciarMonitor();
 
-// Dashboard (Manteniendo tu lógica de sonido con localStorage para evitar pitidos duplicados)
 app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   res.send(`
