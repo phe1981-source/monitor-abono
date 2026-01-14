@@ -78,7 +78,6 @@ async function iniciarMonitor() {
           const opciones = Array.from(document.querySelectorAll('#select_recinto_event option'))
             .map(el => el.innerText.trim())
             .filter(n => n !== "" && n !== "-- Seleccione --");
-          
           return [...new Set([...visuales, ...opciones])].filter(n => n.length > 2);
         });
 
@@ -86,60 +85,80 @@ async function iniciarMonitor() {
           const nombresActuales = [...new Set(data)];
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
-          if (listaLimpia.length === 0) {
+          const esPrimeraVez = listaLimpia.length === 0;
+          const anteriorNombres = listaLimpia.map(item => item.nombre);
+          let detectarAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
+
+          // MODO PRUEBA: Si no hay novedades, forzamos el link de la primera obra para validar
+          if (!esPrimeraVez && detectarAhora.length === 0 && linksDirectos.length === 0) {
+             detectarAhora = [nombresActuales[0]]; 
+             console.log("🧪 Validando clic directo en: " + nombresActuales[0]);
+          }
+
+          if (esPrimeraVez) {
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
             saveState();
-          } else {
-            const anteriorNombres = listaLimpia.map(item => item.nombre);
-            const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
+          } else if (detectarAhora.length > 0) {
+            historialNovedades.forEach(h => h.nuevo = false);
 
-            if (detectadosAhora.length > 0) {
-              historialNovedades.forEach(h => h.nuevo = false);
-
-              for (const nombre of detectadosAhora) {
-                console.log(`🔎 Nuevo: ${nombre}`);
-                try {
-                  const handle = await frame.evaluateHandle(async (n) => {
-                    const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'));
-                    const link = links.find(a => a.innerText.trim().toLowerCase() === n.trim().toLowerCase());
-                    if (link) {
-                      link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                      const card = link.closest('.tribe-events-list-event-details, .content, .tribe-events-calendar-list__event-details');
-                      return card ? card.querySelector('a.buyBtn') : null;
-                    }
-                    return null;
-                  }, nombre);
-
-                  const btnComprar = handle.asElement();
-                  if (btnComprar) {
-                    const p1T = browser.waitForTarget(t => t.opener() === page.target());
-                    await btnComprar.click();
-                    const target1 = await p1T;
-                    const p1 = await target1.page();
-                    
-                    if (p1) {
-                      await p1.waitForSelector('a.buyBtn', { timeout: 20000 });
-                      const btns = await p1.$$('a.buyBtn');
-                      if (btns.length >= 2) {
-                        // CORRECCIÓN SINTAXIS AQUÍ:
-                        const p2T = browser.waitForTarget(t => t.opener() === target1);
-                        await btns[1].click();
-                        const target2 = await p2T;
-                        const p2 = await target2.page();
-                        if (p2) {
-                          await p2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 45000 }).catch(() => {});
-                          linksDirectos.unshift({ nombre, url: p2.url(), hora: ahoraHora });
-                          await p2.close();
-                        }
-                      }
-                      await p1.close();
-                    }
+            for (const nombre of detectarAhora) {
+              try {
+                // FASE 1: BUSCAR Y CLICAR DIRECTAMENTE EN EL NOMBRE
+                const handle = await frame.evaluateHandle((n) => {
+                  const links = Array.from(document.querySelectorAll('a'))
+                                     .filter(a => a.innerText.trim().toLowerCase() === n.toLowerCase());
+                  const link = links[0];
+                  if (link) {
+                    link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    return link; // Retornamos el elemento del título directamente
                   }
-                  historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
-                } catch (e) { console.log(`Error en ${nombre}`); }
-              }
-              saveState();
+                  return null;
+                }, nombre);
+
+                const elNombre = handle.asElement();
+                if (elNombre) {
+                  console.log(`🎯 Clic directo en título: ${nombre}`);
+                  const p1T = browser.waitForTarget(t => t.opener() === page.target(), {timeout: 15000});
+                  
+                  // El clic en el nombre abre el primer popup
+                  await elNombre.click();
+                  
+                  const target1 = await p1T;
+                  const p1 = await target1.page();
+                  
+                  if (p1) {
+                    // FASE 2: SEGUNDO CLIC EN "COMPRAR" (Dentro del popup)
+                    await p1.waitForSelector('a.buyBtn', { timeout: 15000 });
+                    const btns = await p1.$$('a.buyBtn');
+                    
+                    if (btns.length >= 2) {
+                      const p2T = browser.waitForTarget(t => t.opener() === target1, {timeout: 15000});
+                      await btns[1].click(); // El segundo botón de compra
+                      
+                      const target2 = await p2T;
+                      const p2 = await target2.page();
+                      if (p2) {
+                        // FASE 3: CAPTURA DE URL FINAL
+                        await p2.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
+                        const urlFinal = p2.url();
+                        
+                        if (urlFinal.includes('compras.abonoteatro.com')) {
+                          linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora });
+                          console.log(`✅ URL Pasarela capturada para ${nombre}`);
+                        }
+                        await p2.close();
+                      }
+                    }
+                    await p1.close();
+                  }
+                }
+                
+                // Solo añadir al historial si es realmente nuevo (no una prueba)
+                if (!anteriorNombres.includes(nombre)) {
+                   historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
+                }
+              } catch (e) { console.log(`🛑 Error en proceso de link para ${nombre}: ${e.message}`); }
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
