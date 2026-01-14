@@ -12,7 +12,7 @@ let historialNovedades = [];
 let linksDirectos = []; 
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
-let estaCapturando = false; // Bloqueo de seguridad
+let estaCapturando = false; 
 
 function saveState() {
   try {
@@ -40,7 +40,7 @@ async function safeClose(p) {
 loadState();
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Jules V4.8 - Ultra-Sync Mode...");
+  console.log("🚀 Iniciando Jules V4.8.1 - Fix Syntax...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
@@ -48,7 +48,6 @@ async function iniciarMonitor() {
   
   const page = await browser.newPage();
   await page.setViewport({ width: 1280, height: 800 });
-  await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   async function captureUrlForShow(nombre) {
     estaCapturando = true; 
@@ -60,7 +59,6 @@ async function iniciarMonitor() {
       const frame = await frameElement.contentFrame();
 
       const target1Promise = new Promise(resolve => browser.once('targetcreated', resolve));
-
       const clickExitoso = await frame.evaluate((n) => {
         const links = Array.from(document.querySelectorAll('a'));
         const found = links.find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
@@ -95,7 +93,7 @@ async function iniciarMonitor() {
       }
     } catch (e) {
       console.log(`🛑 Fallo en captura: ${e.message}`);
-      await page.reload({ waitUntil: 'networkidle2' }).catch(() => {}); // Limpieza tras fallo
+      await page.reload({ waitUntil: 'networkidle2' }).catch(() => {});
     } finally {
       await safeClose(popup2);
       await safeClose(popup1);
@@ -107,10 +105,6 @@ async function iniciarMonitor() {
   try {
     logEstado = "Login...";
     await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 90000 });
-    await page.evaluate(() => {
-      const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Aceptar'));
-      if (btn) btn.click();
-    }).catch(() => {});
     await page.type('#nabonadologin', USER);
     await page.type('#contrasenalogin', PASS);
     await Promise.all([
@@ -122,7 +116,7 @@ async function iniciarMonitor() {
       if (!estaCapturando) {
         logEstado = "Escaneando...";
         await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2', timeout: 90000 });
-        await new Promise(r => setTimeout(r, 15000)); 
+        await new Promise(r => setTimeout(r, 10000)); 
 
         const frameElement = await page.$('iframe');
         if (frameElement) {
@@ -136,8 +130,12 @@ async function iniciarMonitor() {
           if (data && data.length > 0) {
             const nombresActuales = [...new Set(data)];
             const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-            const anteriorNombres = listaLimpia.map(item => item.nombre);
-            const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
+            const detectadosAhora = nombresActuales.filter(n => !listaLimpia.some(item => item.nombre === n));
+
+            // Test con LOSER si existe
+            if (nombresActuales.some(n => n.toUpperCase().includes("LOSER"))) {
+                await captureUrlForShow("LOSER");
+            }
 
             if (listaLimpia.length === 0) {
               listaLimpia = nombresActuales.map(n => ({ nombre: n }));
@@ -146,9 +144,46 @@ async function iniciarMonitor() {
               historialNovedades.forEach(h => h.nuevo = false);
               for (const nombre of detectadosAhora) {
                 const finalUrl = await captureUrlForShow(nombre);
-                if (finalUrl) {
-                  linksDirectos.unshift({ nombre, url: finalUrl, hora: ahoraHora });
-                  historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
-                } else {
-                    // Si falla la URL, al menos guardamos la novedad sin link
-                    historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
+                linksDirectos.unshift({ nombre, url: finalUrl || '#', hora: ahoraHora });
+                historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
+              }
+              listaLimpia = nombresActuales.map(n => ({ nombre: n }));
+              ultimaActualizacion = ahoraHora;
+              saveState();
+            }
+          }
+        }
+      }
+      const espera = Math.floor(Math.random() * (240 - 120 + 1) + 120);
+      logEstado = `Espera ${Math.floor(espera/60)}m...`;
+      await new Promise(r => setTimeout(r, espera * 1000)); 
+    }
+  } catch (error) {
+    console.log("❌ ERROR:", error.message);
+    if (browser) await browser.close();
+    setTimeout(iniciarMonitor, 30000); 
+  }
+}
+
+iniciarMonitor();
+
+app.get('/', (req, res) => {
+  res.send(`
+    <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
+      <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
+        <header style="text-align:center; margin-bottom:40px;">
+          <div style="font-size:5em; font-weight:bold; color:#B9C800;">${listaLimpia.length}</div>
+          <p>Estado: ${logEstado} | Sincro: ${ultimaActualizacion}</p>
+        </header>
+        <section style="margin-bottom:30px;">
+          <h3 style="color:#00ff00;">🚀 Links Directos</h3>
+          ${linksDirectos.map(l => `<div style="margin-bottom:10px;"><a href="${l.url}" target="_blank" style="display:block; color:#fff; background:#004d00; padding:12px; border-radius:8px; text-decoration:none;">${l.nombre} [${l.hora}]</a></div>`).join('') || '<p>Nada por ahora.</p>'}
+        </section>
+      </div>
+      <script>setTimeout(() => location.reload(), 60000);</script>
+    </body>
+  `);
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0');
