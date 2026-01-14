@@ -16,7 +16,7 @@ function obtenerEsperaAleatoria(min, max) {
 }
 
 async function iniciarMonitor() {
-  console.log("🚀 [SISTEMA] Iniciando Bot V3.2.1 - Modo Verbose Log");
+  console.log("🚀 [SISTEMA] Iniciando Bot V3.2.2 - Alarma Prioritaria");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled']
@@ -70,7 +70,7 @@ async function iniciarMonitor() {
         });
 
         if (data && data.length > 0) {
-          console.log(`📊 [SCAN] Encontrados ${data.length} eventos en total.`);
+          console.log(`📊 [SCAN] Encontrados ${data.length} eventos.`);
           const nombresActuales = [...new Set(data)];
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
@@ -84,14 +84,21 @@ async function iniciarMonitor() {
 
             if (detectadosAhora.length > 0) {
               console.log(`🔔 [ALERTA] Se han detectado ${detectadosAhora.length} novedades!`);
+              
+              // PASO 1: ACTIVAR ALARMA INMEDIATAMENTE
               historialNovedades.forEach(h => h.nuevo = false);
+              for (const nombre of detectadosAhora) {
+                historialNovedades.unshift({ nombre, hora: ahoraHora, nuevo: true });
+              }
 
+              // PASO 2: INTENTAR BUSCAR LINKS (SIN BLOQUEAR LA ALARMA)
               for (const nombre of detectadosAhora) {
                 console.log(`🔎 [EXTRACTOR] Intentando obtener link para: ${nombre}`);
                 try {
                   const clicExitoso = await frame.evaluate((n) => {
-                    const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'));
-                    const target = links.find(a => a.innerText.trim().toLowerCase() === n.toLowerCase());
+                    const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, a'));
+                    // Búsqueda más flexible por texto contenido
+                    const target = links.find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
                     if (target) {
                       target.scrollIntoView();
                       target.click();
@@ -101,23 +108,19 @@ async function iniciarMonitor() {
                   }, nombre);
 
                   if (clicExitoso) {
-                    console.log(`🚀 [EXTRACTOR] Click realizado. Esperando primer popup...`);
-                    const target1 = await browser.waitForTarget(t => t.opener() === page.target(), { timeout: 15000 });
+                    const target1 = await browser.waitForTarget(t => t.opener() === page.target(), { timeout: 10000 });
                     const page1 = await target1.page();
 
                     if (page1) {
-                      await page1.waitForSelector('a.buyBtn', { timeout: 15000 });
+                      await page1.waitForSelector('a.buyBtn', { timeout: 10000 });
                       const botones = await page1.$$('a.buyBtn');
                       
                       if (botones.length >= 2) {
-                        console.log(`🛒 [EXTRACTOR] Botón compra hallado. Abriendo pasarela...`);
-                        const target2Promise = browser.waitForTarget(t => t.opener() === target1.target(), { timeout: 15000 });
+                        const target2Promise = browser.waitForTarget(t => t.opener() === target1.target(), { timeout: 10000 });
                         await botones[1].click();
                         const page2 = await target2Promise.page();
 
                         if (page2) {
-                          await page2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 30000 }).catch(() => {});
-                          console.log(`🔗 [EXTRACTOR] URL capturada: ${page2.url().substring(0, 50)}...`);
                           linksDirectos.unshift({ nombre, url: page2.url(), hora: ahoraHora });
                           await page2.close().catch(() => {});
                         }
@@ -125,20 +128,15 @@ async function iniciarMonitor() {
                       await page1.close().catch(() => {});
                     }
                   }
-                  historialNovedades.unshift({ nombre, hora: ahoraHora, nuevo: true });
                 } catch (e) { 
-                  console.log(`🛑 [ERROR EXTRACTOR] No se pudo obtener link de "${nombre}": ${e.message}`); 
+                  console.log(`🛑 [LINK FAIL] No se obtuvo link para "${nombre}", pero la alarma visual ya está activa.`); 
                 }
               }
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
           }
-        } else {
-          console.log("⚠️ [SCAN] El iframe respondió pero no encontró eventos (lista vacía).");
         }
-      } else {
-        console.log("❌ [ERROR] Iframe no encontrado en la página de teatro.");
       }
 
       const espera = obtenerEsperaAleatoria(180, 240);
@@ -197,14 +195,22 @@ app.get('/', (req, res) => {
           updateBtn();
           if (sonidoActivado) { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); }
         }
+        
+        // LOGICA DE ALARMA MEJORADA (DOBLE BIP)
         if (${hayNovedad} && sonidoActivado) {
           const context = new (window.AudioContext || window.webkitAudioContext)();
-          const osc = context.createOscillator();
-          const gain = context.createGain();
-          osc.connect(gain); gain.connect(context.destination);
-          osc.frequency.value = 880; 
-          gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 1);
-          osc.start(); osc.stop(context.currentTime + 1);
+          const sonar = (delay) => {
+            setTimeout(() => {
+              const osc = context.createOscillator();
+              const gain = context.createGain();
+              osc.connect(gain); gain.connect(context.destination);
+              osc.frequency.value = 880; 
+              gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 1.2);
+              osc.start(); osc.stop(context.currentTime + 1.2);
+            }, delay);
+          };
+          sonar(0);
+          sonar(1500);
         }
         setTimeout(() => location.reload(), 60000);
       </script>
@@ -212,14 +218,14 @@ app.get('/', (req, res) => {
   `);
 });
 
-const PORT = process.env.PORT || 10000;
-// RUTA DE TEST: Escribe tu-url.com/test-alarma para borrar un evento y forzar la alerta
 app.get('/test-alarma', (req, res) => {
     if (listaLimpia.length > 0) {
-        const eliminado = listaLimpia.shift(); // Borra el primer evento de la lista en memoria
-        res.send(`<h3>Simulacro Activado</h3><p>Se ha borrado de memoria: <b>${eliminado.nombre}</b>.</p><p>En el próximo escaneo, Jules lo detectará como "Novedad" y debería sonar la alarma.</p>`);
+        const eliminado = listaLimpia.shift();
+        res.send(`<h3>Simulacro Activado</h3><p>Se ha borrado: <b>${eliminado.nombre}</b>.</p><p>En el próximo escaneo saltará la alarma.</p>`);
     } else {
-        res.send("La lista aún está vacía. Espera a que el bot haga el primer escaneo con éxito.");
+        res.send("Espera al primer escaneo exitoso.");
     }
 });
+
+const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0');
