@@ -1,4 +1,4 @@
-// extractor.js - Módulo de apoyo para Links Directos
+// extractor.js
 async function captureUrl(browser, page, nombre) {
   let popup1 = null, popup2 = null;
   try {
@@ -6,8 +6,7 @@ async function captureUrl(browser, page, nombre) {
     if (!frameElement) return null;
     const frame = await frameElement.contentFrame();
 
-    // Promesa para detectar cuando se abra la primera ventana
-    const target1Promise = browser.waitForTarget(t => t.opener() === page.target());
+    const target1Promise = browser.waitForTarget(t => t.opener() === page.target(), { timeout: 30000 });
     
     const clickExitoso = await frame.evaluate((n) => {
       const links = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'));
@@ -22,35 +21,27 @@ async function captureUrl(browser, page, nombre) {
 
     if (!clickExitoso) return null;
 
-    const target1 = await Promise.race([
-      target1Promise,
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Popup 1')), 15000))
-    ]);
-
+    const target1 = await target1Promise;
     popup1 = await target1.page();
+    
     if (popup1) {
-      await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 10000 });
+      await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 20000 });
       const btns = await popup1.$$('a.buyBtn');
       
       if (btns.length >= 2) {
-        // Promesa para la segunda ventana (la del link final)
-        const target2Promise = browser.waitForTarget(t => t.opener() === target1);
+        const target2Promise = browser.waitForTarget(t => t.opener() === target1, { timeout: 30000 });
         await btns[1].click();
-
-        const target2 = await Promise.race([
-          target2Promise,
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout Popup 2')), 15000))
-        ]);
-
+        const target2 = await target2Promise;
         popup2 = await target2.page();
+        
         if (popup2) {
-          await popup2.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 15000 }).catch(() => {});
+          await popup2.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {});
           return popup2.url();
         }
       }
     }
   } catch (e) {
-    console.log(`⚠️ Extractor: No se pudo obtener link para ${nombre}`);
+    console.log(`⚠️ Extractor: Link omitido para ${nombre}`);
   } finally {
     if (popup2) await popup2.close().catch(() => {});
     if (popup1) await popup1.close().catch(() => {});
