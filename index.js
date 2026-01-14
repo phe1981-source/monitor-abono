@@ -32,10 +32,14 @@ function loadState() {
   } catch (e) {}
 }
 
+async function safeClose(p) {
+  if (p && !p.isClosed()) { try { await p.close(); } catch (e) {} }
+}
+
 loadState();
 
 async function iniciarMonitor() {
-  console.log("🚀 Iniciando Jules V4.3.1 - Syntax Fixed...");
+  console.log("🚀 Iniciando Jules V4.3.1 - Professional Persistence...");
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-blink-features=AutomationControlled']
@@ -45,8 +49,8 @@ async function iniciarMonitor() {
   await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
   try {
-    logEstado = "Intentando Login...";
-    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'domcontentloaded', timeout: 90000 });
+    logEstado = "Login...";
+    await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2', timeout: 90000 });
     
     await page.evaluate(() => {
       const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Aceptar'));
@@ -58,107 +62,85 @@ async function iniciarMonitor() {
     
     await Promise.all([
       page.click('input[value="Entrar"].buyBtn'),
-      page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 90000 })
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 })
     ]);
 
-    console.log("✅ Login completado.");
+    // FUNCIÓN MODULAR DE CAPTURA
+    async function captureUrlForShow(nombre, isTest = false, frame) {
+      let popup1 = null, popup2 = null;
+      try {
+        const p1Promise = browser.waitForTarget(t => t.opener() === page.target(), {timeout: 15000});
+        
+        await frame.evaluate((n) => {
+            const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'))
+                             .find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
+            if (el) el.click();
+        }, nombre);
+
+        const target1 = await p1Promise;
+        popup1 = await target1.page();
+
+        if (popup1) {
+            await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 15000 });
+            const btns = await popup1.$$('a.buyBtn');
+            if (btns.length >= 2) {
+                const p2Promise = browser.waitForTarget(t => t.opener() === target1, {timeout: 15000});
+                await btns[1].click();
+                const target2 = await p2Promise;
+                popup2 = await target2.page();
+                if (popup2) {
+                    await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }).catch(() => {});
+                    const finalUrl = popup2.url();
+                    return finalUrl;
+                }
+            }
+        }
+      } catch (e) {
+          console.log(`🛑 Error capturando ${nombre}: ${e.message}`);
+      } finally {
+          await safeClose(popup2);
+          await safeClose(popup1);
+      }
+      return null;
+    }
 
     while (true) {
       logEstado = "Escaneando...";
-      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
-      
+      await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2', timeout: 90000 });
       await new Promise(r => setTimeout(r, 20000)); 
 
       const frameElement = await page.$('iframe');
       if (frameElement) {
         const frame = await frameElement.contentFrame();
         const data = await frame.evaluate(() => {
-          const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, .tribe-events-calendar-list__event-title a'))
-            .map(el => el.innerText.trim());
+          const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).map(el => el.innerText.trim());
           const opciones = Array.from(document.querySelectorAll('#select_recinto_event option'))
-            .map(el => el.innerText.trim())
-            .filter(n => n !== "" && n !== "-- Seleccione --");
-          return [...new Set([...visuales, ...opciones])].filter(n => n.length > 2);
+                                .map(el => el.innerText.trim()).filter(n => n.length > 2 && !n.includes("Seleccione"));
+          return [...new Set([...visuales, ...opciones])];
         });
 
         if (data && data.length > 0) {
           const nombresActuales = [...new Set(data)];
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-
-          const esPrimeraVez = listaLimpia.length === 0;
           const anteriorNombres = listaLimpia.map(item => item.nombre);
-          let detectarAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
+          const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
-          // MODO PRUEBA: Si no hay novedades, forzamos el link de la primera obra para validar
-          if (!esPrimeraVez && detectarAhora.length === 0 && linksDirectos.length === 0) {
-             detectarAhora = [nombresActuales[0]]; 
-             console.log("🧪 Validando clic directo en: " + nombresActuales[0]);
+          // MODO PRUEBA "LOSER"
+          if (nombresActuales.some(n => n.toUpperCase().includes("LOSER"))) {
+              await captureUrlForShow("LOSER", true, frame);
           }
 
-          if (esPrimeraVez) {
+          if (listaLimpia.length === 0) {
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
-            ultimaActualizacion = ahoraHora;
             saveState();
-          } else if (detectarAhora.length > 0) {
+          } else if (detectadosAhora.length > 0) {
             historialNovedades.forEach(h => h.nuevo = false);
-
-            for (const nombre of detectarAhora) {
-              try {
-                // FASE 1: BUSCAR Y CLICAR DIRECTAMENTE EN EL NOMBRE
-                const handle = await frame.evaluateHandle((n) => {
-                  const links = Array.from(document.querySelectorAll('a'))
-                                     .filter(a => a.innerText.trim().toLowerCase() === n.toLowerCase());
-                  const link = links[0];
-                  if (link) {
-                    link.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    return link; // Retornamos el elemento del título directamente
-                  }
-                  return null;
-                }, nombre);
-
-                const elNombre = handle.asElement();
-                if (elNombre) {
-                  console.log(`🎯 Clic directo en título: ${nombre}`);
-                  const p1T = browser.waitForTarget(t => t.opener() === page.target(), {timeout: 15000});
-                  
-                  // El clic en el nombre abre el primer popup
-                  await elNombre.click();
-                  
-                  const target1 = await p1T;
-                  const p1 = await target1.page();
-                  
-                  if (p1) {
-                    // FASE 2: SEGUNDO CLIC EN "COMPRAR" (Dentro del popup)
-                    await p1.waitForSelector('a.buyBtn', { timeout: 15000 });
-                    const btns = await p1.$$('a.buyBtn');
-                    
-                    if (btns.length >= 2) {
-                      const p2T = browser.waitForTarget(t => t.opener() === target1, {timeout: 15000});
-                      await btns[1].click(); // El segundo botón de compra
-                      
-                      const target2 = await p2T;
-                      const p2 = await target2.page();
-                      if (p2) {
-                        // FASE 3: CAPTURA DE URL FINAL
-                        await p2.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 25000 }).catch(() => {});
-                        const urlFinal = p2.url();
-                        
-                        if (urlFinal.includes('compras.abonoteatro.com')) {
-                          linksDirectos.unshift({ nombre, url: urlFinal, hora: ahoraHora });
-                          console.log(`✅ URL Pasarela capturada para ${nombre}`);
-                        }
-                        await p2.close();
-                      }
-                    }
-                    await p1.close();
-                  }
-                }
-                
-                // Solo añadir al historial si es realmente nuevo (no una prueba)
-                if (!anteriorNombres.includes(nombre)) {
-                   historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
-                }
-              } catch (e) { console.log(`🛑 Error en proceso de link para ${nombre}: ${e.message}`); }
+            for (const nombre of detectadosAhora) {
+              const finalUrl = await captureUrlForShow(nombre, false, frame);
+              if (finalUrl) {
+                linksDirectos.unshift({ nombre, url: finalUrl, hora: ahoraHora });
+                historialNovedades.unshift({ nombre, hora: ahoraHora, timestamp: Date.now(), nuevo: true });
+              }
             }
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
@@ -166,8 +148,8 @@ async function iniciarMonitor() {
           }
         }
       }
-      const espera = Math.floor(Math.random() * (300 - 180 + 1) + 180);
-      logEstado = `Espera (${Math.floor(espera/60)}m ${espera%60}s)`;
+      const espera = Math.floor(Math.random() * (240 - 120 + 1) + 120);
+      logEstado = `Espera ${Math.floor(espera/60)}m...`;
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
   } catch (error) {
@@ -206,22 +188,32 @@ app.get('/', (req, res) => {
       <script>
         let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
         let audioCtx;
+        const ultimaPitada = localStorage.getItem('uPitada');
+        const syncTimestamp = "${ultimaActualizacion}";
+
         function updateBtn() {
             const btn = document.getElementById('btnSonido');
             btn.innerText = sonidoActivado ? '🔊 Sonido Activo' : '🔇 Activar Sonido';
             btn.style.background = sonidoActivado ? '#00ff00' : '#444';
         }
         updateBtn();
+
         function toggleSonido() {
           sonidoActivado = !sonidoActivado;
           sessionStorage.setItem('sonidoLocal', sonidoActivado);
           updateBtn();
-          if (sonidoActivado) { if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)(); audioCtx.resume(); }
+          if (sonidoActivado && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
-        if (${hayNovedad} && sonidoActivado) {
+
+        if (${hayNovedad} && sonidoActivado && ultimaPitada !== syncTimestamp) {
           if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-          const osc = audioCtx.createOscillator(); osc.connect(audioCtx.destination);
-          osc.frequency.setValueAtTime(880, audioCtx.currentTime); osc.start(); setTimeout(() => osc.stop(), 200);
+          const osc = audioCtx.createOscillator();
+          const g = audioCtx.createGain();
+          osc.connect(g); g.connect(audioCtx.destination);
+          osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+          g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
+          osc.start(); osc.stop(audioCtx.currentTime + 0.5);
+          localStorage.setItem('uPitada', syncTimestamp);
         }
         setTimeout(() => location.reload(), 60000);
       </script>
