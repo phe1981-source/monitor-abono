@@ -92,28 +92,40 @@ async function iniciarMonitor() {
               let popup1 = null, popup2 = null;
 
               try {
-                // --- MANEJO DE POPUPS BASADO EN EVENTOS (MEJORADO) ---
+                console.log(`🔎 Capturando URL para: ${nombre}...`);
                 const p1Promise = page.waitForEvent('popup', { timeout: 15000 });
                 await frame.evaluate((n) => {
                   const el = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a')).find(a => a.innerText.trim().toLowerCase() === n.toLowerCase());
                   if (el) el.click();
                 }, nombre);
                 popup1 = await p1Promise;
+                console.log('✅ Popup 1 detectado.');
 
                 if (popup1) {
                   await popup1.waitForSelector('a.buyBtn', { visible: true, timeout: 15000 });
                   const btns = await popup1.$$('a.buyBtn');
+                   console.log(`✅ Encontrados ${btns.length} botones de compra.`);
                   if (btns.length >= 2) {
                     const p2Promise = popup1.waitForEvent('popup', { timeout: 15000 });
                     await btns[1].click();
+                    console.log('✅ Click en el segundo botón de compra.');
                     popup2 = await p2Promise;
+                     console.log('✅ Popup 2 detectado.');
                     if (popup2) {
                       await popup2.waitForNavigation({ waitUntil: 'networkidle0', timeout: 20000 }).catch(()=>{});
-                      linksDirectos.unshift({ nombre, url: popup2.url(), hora: ahoraHora });
+                      const finalUrl = popup2.url();
+                      linksDirectos.unshift({ nombre, url: finalUrl, hora: ahoraHora });
+                      console.log(`✅ URL capturada: ${finalUrl}`);
                     }
                   }
                 }
-              } catch (e) { console.log(`🛑 URL fallida para ${nombre}: ${e.stack}`); }
+              } catch (e) {
+                console.log(`🛑 URL fallida para ${nombre}: ${e.stack}`);
+                const timestamp = new Date().toISOString().replace(/:/g, '-');
+                const screenshotPath = `error_capture_${timestamp}.png`;
+                await page.screenshot({ path: screenshotPath });
+                console.log(`📸 Captura de pantalla del error guardada en ${screenshotPath}`);
+              }
               finally {
                 await safeClose(popup2);
                 await safeClose(popup1);
@@ -170,7 +182,7 @@ app.get('/', (req, res) => {
         let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
         let audioCtx;
         const ultimaPitada = localStorage.getItem('uPitada');
-        const novedadTimestamp = "${historialNovedades.length > 0 ? historialNovedades[0].timestamp : ''}";
+        const syncTimestamp = "${ultimaActualizacion}";
 
         function updateBtn() {
           const btn = document.getElementById('btnSonido');
@@ -186,7 +198,7 @@ app.get('/', (req, res) => {
           if (sonidoActivado && !audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
 
-        if (${hayNovedad} && sonidoActivado && ultimaPitada !== novedadTimestamp) {
+        if (${hayNovedad} && sonidoActivado && ultimaPitada !== syncTimestamp) {
           if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
           const osc = audioCtx.createOscillator();
           const g = audioCtx.createGain();
@@ -194,7 +206,7 @@ app.get('/', (req, res) => {
           osc.frequency.setValueAtTime(880, audioCtx.currentTime);
           g.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + 0.5);
           osc.start(); osc.stop(audioCtx.currentTime + 0.5);
-          localStorage.setItem('uPitada', novedadTimestamp);
+          localStorage.setItem('uPitada', syncTimestamp);
         }
         setTimeout(() => location.reload(), 60000);
       </script>
