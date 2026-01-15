@@ -26,7 +26,7 @@ function obtenerEsperaAleatoria(min, max) {
 }
 
 async function iniciarMonitor() {
-  console.log("🚀 [SISTEMA] Iniciando Bot V4.0.0 - Distributed Architecture Edition");
+  console.log("🚀 [SISTEMA] Iniciando Bot V4.1 - Distributed Architecture Edition + Audio");
   
   const browser = await puppeteer.launch({
     headless: "new",
@@ -123,88 +123,75 @@ iniciarMonitor();
 
 // --- DASHBOARD V4.0.0 ---
 app.get('/', (req, res) => {
-  const tieneNovedades = ultimasNovedadesDetectadas > 0;
-  const colorBadge = tieneNovedades ? '#ff0000' : '#444'; 
-  const animacion = tieneNovedades ? 'animation: blinker 1.5s linear infinite;' : '';
-
+  const hayNovedad = historialNovedades.some(h => h.nuevo);
   res.send(`
-    <style>
-      @keyframes blinker { 50% { opacity: 0; } }
-      .scroll-custom::-webkit-scrollbar { width: 8px; }
-      .scroll-custom::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-      body { background:#000; color:#fff; font-family:sans-serif; padding:20px; }
-      .container { max-width:900px; margin:auto; border:1px solid #333; padding:25px; border-radius:15px; background:#0a0a0a; }
-    </style>
+    <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
+      <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
+        <div style="text-align:right; margin-bottom:20px;">
+          <button id="btnSonido" onclick="activarTodo()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">Activar Alertas</button>
+        </div>
+        <header style="text-align:center; margin-bottom:40px;">
+          <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:2px;">Eventos Totales</div>
+          <div style="font-size:7em; font-weight:bold; color:#B9C800; line-height:1;">${listaLimpia.length}</div>
+          <p style="color:#555;">Estado: <span style="color:#ccc;">${logEstado}</span> | Sincro: <span style="color:#ccc;">${ultimaActualizacion}</span></p>
+        </header>
+        <section style="margin-bottom:30px;">
+          <h3 style="color:#00ff00; border-left:4px solid #00ff00; padding-left:10px;">🚀 Links Directos</h3>
+          <div style="background:#001a00; border:1px solid #004400; padding:15px; border-radius:12px;">
+            ${linksDirectos.map(l => `<div style="margin-bottom:8px;"><a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; background:#004d00; padding:12px; border-radius:8px; text-align:center; text-decoration:none; border:1px solid #00ff00;">${l.nombre} [${l.hora}]</a></div>`).join('') || '<p style="color:#444;">Esperando nuevas entradas con link...</p>'}
+          </div>
+        </section>
+        <section>
+          <h3 style="color:#ff4400; border-left:4px solid #ff4400; padding-left:10px;">🔔 Historial</h3>
+          <div style="background:#111; padding:15px; border-radius:12px; max-height:250px; overflow-y:auto; border:1px solid #222;">
+            ${historialNovedades.map(h => `<p style="margin:8px 0; border-bottom:1px solid #222; padding-bottom:5px; ${h.nuevo ? 'color:#ff0000; font-weight:bold;' : 'color:orange;'}">[${h.hora}] ${h.nombre}</p>`).join('') || '<p style="color:#444;">Sin actividad todavía.</p>'}
+          </div>
+        </section>
+      </div>
 
-    <div class="container">
-      <header style="text-align:center; margin-bottom:30px;">
-        <h1 style="color:#B9C800; font-size:1em; margin-bottom:20px; letter-spacing:2px; opacity: 0.6;">MONITOR AGILE V4.0.0</h1>
+      <script>
+        let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
         
-        <div style="line-height:1;">
-          <span style="font-size:6em; font-weight:bold; color:#ff4400;">${historialNovedades.length}</span>
-          <span style="font-size:2.5em; font-weight:bold; color:${colorBadge}; ${animacion}"> (+${ultimasNovedadesDetectadas})</span>
-        </div>
-        <div style="color:#666; text-transform:uppercase; font-size:0.8em; margin-top:5px;">Alertas (Últimas 12h)</div>
+        function updateBtn() {
+            const btn = document.getElementById('btnSonido');
+            btn.innerText = sonidoActivado ? '🔊 Alertas Activas' : '🔇 Activar Alertas';
+            btn.style.background = sonidoActivado ? '#00ff00' : '#444';
+            btn.style.color = sonidoActivado ? '#000' : '#fff';
+        }
 
-        <div style="margin-top:25px;">
-          <span style="font-size:2.5em; font-weight:bold; color:#B9C800;">${listaBrutaLength}</span>
-          <div style="color:#444; text-transform:uppercase; font-size:0.7em;">Eventos Totales en Sistema</div>
-        </div>
-      </header>
+        async function activarTodo() {
+            // Activar Sonido
+            sonidoActivado = !sonidoActivado;
+            sessionStorage.setItem('sonidoLocal', sonidoActivado);
+            updateBtn();
 
-      <div style="background:#111; padding:12px; border-radius:8px; text-align:center; font-size:0.9em; color:#888; margin-bottom:25px; border:1px solid #222;">
-        Última Lectura: <b>${ultimaActualizacion}</b> | Próxima en: <b>${proximoEscaneo}</b>
-      </div>
+            // Solicitar Permiso Notificaciones
+            if (sonidoActivado && Notification.permission !== "granted") {
+                await Notification.requestPermission();
+            }
+        }
 
-      <section style="margin-bottom:25px;">
-        <div style="background:#111; border-left:4px solid #ff4400; padding:15px; border-radius:4px;">
-          <h3 style="color:#ff4400; margin:0 0 10px 0; font-size:0.8em;">🔔 HISTORIAL DE NOVEDADES</h3>
-          <div class="scroll-custom" style="max-height:180px; overflow-y:auto;">
-            ${historialNovedades.length > 0 ? `
-              <table style="width:100%; border-collapse:collapse;">
-                ${historialNovedades.map(h => `
-                  <tr style="border-bottom:1px solid #222;">
-                    <td style="padding:8px; color:#555; width:70px; font-size:0.8em;">${h.hora}</td>
-                    <td style="padding:8px;"><span style="${h.nuevo ? 'color:#ff0000; font-weight:bold;' : 'color:#ffbb00;'}">${h.nombre}</span></td>
-                  </tr>`).join('')}
-              </table>` : '<p style="color:#333; text-align:center;">Buscando novedades...</p>'}
-          </div>
-        </div>
-      </section>
+        // Lógica de disparo de alertas
+        if (${hayNovedad} && sonidoActivado) {
+            // 1. Sonido .ogg (Campana clara)
+            const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
+            audio.play().catch(e => console.log("Audio bloqueado, haz click en la página"));
 
-      <section>
-        <div style="background:#050505; border:1px solid #222; padding:15px; border-radius:4px;">
-          <h3 style="color:#B9C800; margin:0 0 10px 0; font-size:0.8em;">📋 LINKS DE COMPRA DIRECTA (${linksDirectos.length})</h3>
-          <div class="scroll-custom" style="max-height:300px; overflow-y:auto;">
-            <table style="width:100%; border-collapse:collapse; font-size:0.9em;">
-              ${linksDirectos.map((ev, i) => `
-                <tr style="border-bottom:1px solid #111;">
-                  <td style="color:#333; width:30px; padding:8px;">${i+1}</td>
-                  <td style="padding:8px;"><a href="${ev.url}" target="_blank" style="color:#00ffcc; text-decoration:none;">${ev.nombre}</a></td>
-                  <td style="color:#333; font-size:0.7em; text-align:right;">${ev.hora}</td>
-                </tr>`).join('')}
-            </table>
-          </div>
-        </div>
-      </section>
-    </div>
+            // 2. Notificación de escritorio
+            if (Notification.permission === "granted") {
+                new Notification("🚨 ABONOTEATRO: ¡Novedad!", {
+                    body: "Se ha detectado un nuevo evento. ¡Corre!",
+                    icon: "https://compras.abonoteatro.com/wp-content/uploads/2016/09/cropped-Logo-Abonoteatro-Verde-192x192.png"
+                });
+            }
+        }
 
-    <div id="audio-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.98); color:#fff; display:flex; justify-content:center; align-items:center; z-index:1000; cursor:pointer; text-align:center;">
-      <div>
-        <div style="font-size:4em; color:#B9C800; margin-bottom:15px;">📡</div>
-        <div style="font-size:1.2em; letter-spacing:1px;">CLICK PARA INICIAR V4.0.0</div>
-      </div>
-    </div>
-
-    <script>
-      const audioOverlay = document.getElementById('audio-overlay');
-      const isAudioEnabled = () => sessionStorage.getItem('audioEnabled') === 'true';
-
-      audioOverlay.addEventListener('click', () => {
-        sessionStorage.setItem('audioEnabled', 'true');
-        audioOverlay.style.display = 'none';
-        location.reload(); 
-      });
+        updateBtn();
+        setTimeout(() => location.reload(), 60000);
+      </script>
+    </body>
+  `);
+});
 
       if (isAudioEnabled()) audioOverlay.style.display = 'none';
 
