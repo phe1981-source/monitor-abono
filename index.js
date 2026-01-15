@@ -3,14 +3,11 @@ const express = require('express');
 const { extraerLinkCompra } = require('./extractor'); 
 const app = express();
 
-// --- CONFIGURACIÓN ---
-const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS; 
-
-let listaLimpia = []; 
+// Variables de Estado
 let historialNovedades = []; 
 let linksDirectos = []; 
-let ultimaActualizacion = "Sin datos";
+let totalEventosCartelera = 0; // INDICADOR DE PULSO
+let ultimaActualizacion = "Iniciando...";
 let proximoEscaneo = "Calculando...";
 let horaProximaReal = "Calculando...";
 
@@ -18,150 +15,155 @@ function obtenerEsperaAleatoria(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
+// --- RUTA DE TEST ---
+app.get('/test-alarma', (req, res) => {
+    console.log("[SISTEMA] 🚨 Forzando alarma de prueba...");
+    const testItem = { 
+        nombre: "TEST DE SISTEMA OK", 
+        hora: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), 
+        nuevo: true 
+    };
+    historialNovedades.unshift(testItem);
+    linksDirectos.unshift({ ...testItem, url: "https://google.com" });
+    res.send("<script>alert('Alarma enviada al Dashboard'); window.location.href='/'</script>");
+});
+
 async function iniciarMonitor() {
-  const browser = await puppeteer.launch({
-    headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled']
-  });
-  
-  const page = await browser.newPage();
-  // ... (Tu lógica de login y navegación se mantiene igual)
+    console.log("[SISTEMA] 🚀 Arrancando navegador...");
+    const browser = await puppeteer.launch({
+        headless: "new",
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+    });
+    const page = await browser.newPage();
+    let listaPrevia = [];
 
-  try {
-    while (true) {
-      historialNovedades.forEach(h => h.nuevo = false);
-      
-      // --- LÓGICA DE ESCANEO ---
-      // (Aquí va tu código de page.goto('.../teatro/') y el filtrado de nombres)
-      
-      ultimaActualizacion = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    try {
+        while (true) {
+            console.log(`\n[SISTEMA] 🕒 --- NUEVO CICLO: ${new Date().toLocaleTimeString()} ---`);
+            
+            console.log("[SISTEMA] 🌐 Accediendo a cartelera...");
+            await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'networkidle2' });
+            
+            // Detectar Frame
+            const frameElement = await page.$('iframe[src*="programacion"]');
+            const frame = frameElement ? await frameElement.contentFrame() : page;
 
-      // --- NUEVA LÓGICA DE TIEMPO (90s a 240s) ---
-      const espera = obtenerEsperaAleatoria(90, 240); 
-      const ahora = new Date();
-      const proximaFecha = new Date(ahora.getTime() + (espera * 1000));
-      
-      horaProximaReal = proximaFecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-      proximoEscaneo = `${Math.floor(espera/60)}m ${espera%60}s`;
-      
-      await new Promise(r => setTimeout(r, espera * 1000)); 
+            // Extraer eventos actuales
+            const nombresActuales = await frame.evaluate(() => {
+                return Array.from(document.querySelectorAll('.tribe-events-list-event-title, h3'))
+                            .map(el => el.innerText.trim())
+                            .filter(txt => txt.length > 0);
+            });
+
+            totalEventosCartelera = nombresActuales.length;
+            console.log(`[SISTEMA] 📊 Eventos totales detectados: ${totalEventosCartelera}`);
+
+            // Lógica de Novedades
+            for (let nombre of nombresActuales) {
+                if (listaPrevia.length > 0 && !listaPrevia.includes(nombre)) {
+                    console.log(`[SISTEMA] ✨ ¡NOVEDAD DETECTADA!: ${nombre}`);
+                    const infoLink = await extraerLinkCompra(browser, page, frame, nombre);
+                    
+                    const item = { 
+                        nombre, 
+                        hora: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }), 
+                        nuevo: true 
+                    };
+                    historialNovedades.unshift(item);
+                    if (infoLink) linksDirectos.unshift({ ...item, url: infoLink.url });
+                }
+            }
+
+            listaPrevia = [...nombresActuales];
+            ultimaActualizacion = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
+            // Tiempo de espera: 90s a 240s (4min)
+            const espera = obtenerEsperaAleatoria(90, 240);
+            const ahora = new Date();
+            const proximaFecha = new Date(ahora.getTime() + (espera * 1000));
+            
+            horaProximaReal = proximaFecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+            proximoEscaneo = `${Math.floor(espera/60)}m ${espera%60}s`;
+
+            console.log(`[SISTEMA] ✅ Ciclo finalizado. Espera: ${proximoEscaneo}. Próxima lectura: ${horaProximaReal}`);
+            await new Promise(r => setTimeout(r, espera * 1000));
+        }
+    } catch (error) {
+        console.error("[SISTEMA] 🔥 ERROR:", error.message);
+        setTimeout(iniciarMonitor, 30000);
     }
-  } catch (error) {
-    console.error("❌ Error:", error.message);
-    setTimeout(iniciarMonitor, 30000); 
-  }
 }
 
 iniciarMonitor();
 
-// --- DASHBOARD RESTAURADO ---
+// --- INTERFAZ DASHBOARD ---
 app.get('/', (req, res) => {
-  const hayNovedad = historialNovedades.some(h => h.nuevo);
-  const totalAcumulado = historialNovedades.length;
-  const novedadesN = historialNovedades.filter(h => h.nuevo).length;
-
-  res.send(`
+    const hayNovedad = historialNovedades.some(h => h.nuevo);
+    res.send(`
     <!DOCTYPE html>
     <html lang="es">
     <head>
         <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <style>
-            body { background: #050505; color: #eee; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; text-align: center;}
-            .container { max-width: 800px; margin: auto; }
-            .main-counter { padding: 50px 20px; background: #0a0a0a; border-radius: 30px; border: 1px solid #222; margin-bottom: 25px; }
-            .counter-group { display: flex; justify-content: center; align-items: center; gap: 20px; font-size: 8em; font-weight: 900; line-height: 1; }
-            .total-count { color: #fff; }
-            .badge-novedad { font-size: 0.8em; }
-            .rojo-brillante { color: #ff0033; text-shadow: 0 0 30px rgba(255,0,51,0.6); }
-            .gris-apagado { color: #1a1a1a; }
-            .status-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }
-            .status-item { background: #111; padding: 15px; border-radius: 12px; border: 1px solid #1a1a1a; }
-            .label { color: #555; font-size: 0.7em; text-transform: uppercase; letter-spacing: 2px; display: block; margin-bottom: 5px;}
-            .status-value { color: #fff; font-size: 1.4em; font-weight: bold; }
-            .sections-vertical { display: flex; flex-direction: column; gap: 25px; text-align: left; }
-            .box { background: #0a0a0a; border-radius: 20px; padding: 25px; border: 1px solid #222; }
-            h3 { margin: 0 0 20px 0; font-size: 0.8em; text-transform: uppercase; color: #444; border-bottom: 1px solid #1a1a1a; padding-bottom: 10px; }
-            .btn-alert { width: 100%; padding: 20px; border-radius: 15px; border: none; font-weight: 900; cursor: pointer; margin-bottom: 25px; transition: 0.3s; }
-            .link-card { display: block; background: #001a00; color: #00ff00; padding: 18px; border-radius: 12px; margin-bottom: 12px; text-decoration: none; border: 1px solid #004400; font-weight: bold; }
-            .historial-item { padding: 12px 0; border-bottom: 1px solid #111; display: flex; justify-content: space-between; }
+            body { background: #050505; color: #eee; font-family: sans-serif; text-align: center; padding: 15px; margin: 0; }
+            .container { max-width: 600px; margin: auto; }
+            .main-counter { padding: 30px; background: #0a0a0a; border-radius: 20px; border: 1px solid #222; margin-bottom: 15px; }
+            .pulso-val { font-size: 3.5em; color: #B9C800; font-weight: 900; margin: 10px 0; }
+            .alert-val { font-size: 2em; font-weight: bold; color: #fff; }
+            .status-bar { display: flex; gap: 8px; margin-bottom: 15px; }
+            .status-item { background: #111; padding: 12px; border-radius: 10px; flex: 1; border: 1px solid #222; font-size: 0.8em; }
+            .label { color: #555; text-transform: uppercase; font-size: 0.7em; letter-spacing: 1px; }
+            .box { background: #0a0a0a; border: 1px solid #222; padding: 15px; border-radius: 15px; text-align: left; margin-bottom: 15px; }
+            .link-card { display: block; background: #001a00; color: #00ff00; padding: 15px; border-radius: 10px; text-decoration: none; margin-bottom: 8px; border: 1px solid #004400; font-weight: bold; font-size: 0.9em; }
+            .btn-audio { width: 100%; padding: 15px; border-radius: 10px; border: none; font-weight: bold; cursor: pointer; background: #222; color: #888; margin-bottom: 15px; }
         </style>
     </head>
     <body>
         <div class="container">
-            <button id="btnSonido" onclick="activarTodo()" class="btn-alert">CARGANDO...</button>
+            <button id="btnAudio" class="btn-audio" onclick="toggleAudio()">🔇 AUDIO DESACTIVADO</button>
 
             <div class="main-counter">
-                <div class="label" style="margin-bottom:15px">Alertas Detectadas</div>
-                <div class="counter-group">
-                    <span class="total-count">${totalAcumulado}</span>
-                    <span class="badge-novedad ${novedadesN > 0 ? 'rojo-brillante' : 'gris-apagado'}">(+${novedadesN})</span>
-                </div>
+                <div class="label">Eventos en Cartelera (Pulso)</div>
+                <div class="pulso-val">${totalEventosCartelera}</div>
+                <div class="label">Alertas Detectadas</div>
+                <div class="alert-val">${historialNovedades.length} <span style="color:#ff0033">(+${historialNovedades.filter(h => h.nuevo).length})</span></div>
             </div>
 
             <div class="status-bar">
-                <div class="status-item">
-                    <span class="label">Última Lectura</span>
-                    <span class="status-value">${ultimaActualizacion}</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Próxima a las</span>
-                    <span class="status-value" style="color:#00ff00">${horaProximaReal}</span>
-                </div>
-                <div class="status-item">
-                    <span class="label">Tiempo Espera</span>
-                    <span class="status-value" style="color:#B9C800">Faltan: ${proximoEscaneo}</span>
-                </div>
+                <div class="status-item"><div class="label">Última</div><div style="font-weight:bold">${ultimaActualizacion}</div></div>
+                <div class="status-item"><div class="label">Próxima</div><div style="color:#00ff00; font-weight:bold">${horaProximaReal}</div></div>
+                <div class="status-item"><div class="label">Espera</div><div style="color:#B9C800; font-weight:bold">${proximoEscaneo}</div></div>
             </div>
 
-            <div class="sections-vertical">
-                <div class="box">
-                    <h3>🚀 Links Directos (Pata Negra)</h3>
-                    ${linksDirectos.slice(0, 5).map(l => `
-                        <a href="${l.url}" target="_blank" class="link-card">
-                            ${l.nombre} <span style="float:right; font-size:0.7em; opacity:0.5">${l.hora}</span>
-                        </a>
-                    `).join('') || '<p style="color:#333; text-align:center;">Esperando nuevos eventos...</p>'}
-                </div>
-
-                <div class="box">
-                    <h3>🔔 Historial Reciente</h3>
-                    ${historialNovedades.slice(0, 10).map(h => `
-                        <div class="historial-item" style="${h.nuevo ? 'color: #ff0033; font-weight: bold;' : 'color: #888;'}">
-                            <span>${h.nombre}</span>
-                            <span>${h.hora}</span>
-                        </div>
-                    `).join('') || '<p style="color:#333; text-align:center;">Historial vacío.</p>'}
-                </div>
+            <div class="box">
+                <h3 style="color:#444; font-size: 0.7em; margin-top:0;">🚀 PATA NEGRA (LINKS DIRECTOS)</h3>
+                ${linksDirectos.map(l => `<a href="${l.url}" target="_blank" class="link-card">🎯 ${l.nombre}</a>`).join('') || '<p style="color:#333; font-size:0.8em;">Escaneando...</p>'}
             </div>
         </div>
 
         <script>
-            let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
-            function updateBtn() {
-                const btn = document.getElementById('btnSonido');
-                btn.innerText = sonidoActivado ? '🔊 ALERTAS ACTIVAS' : '🔇 ALERTAS DESACTIVADAS';
-                btn.style.background = sonidoActivado ? '#B9C800' : '#222';
-                btn.style.color = sonidoActivado ? '#000' : '#888';
-            }
-
-            async function activarTodo() {
-                sonidoActivado = !sonidoActivado;
-                sessionStorage.setItem('sonidoLocal', sonidoActivado);
+            let audioEnabled = sessionStorage.getItem('audio') === 'true';
+            const btn = document.getElementById('btnAudio');
+            function toggleAudio() {
+                audioEnabled = !audioEnabled;
+                sessionStorage.setItem('audio', audioEnabled);
                 updateBtn();
             }
-
-            // Alarma sonora
-            if (${hayNovedad} && sonidoActivado && ${totalAcumulado} > parseInt(sessionStorage.getItem('ultimaAlerta') || '0')) {
-                new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play().catch(()=>{});
-                sessionStorage.setItem('ultimaAlerta', '${totalAcumulado}');
+            function updateBtn() {
+                btn.innerText = audioEnabled ? '🔊 AUDIO ACTIVO' : '🔇 AUDIO DESACTIVADO';
+                btn.style.background = audioEnabled ? '#B9C800' : '#222';
+                btn.style.color = audioEnabled ? '#000' : '#888';
             }
-
+            if (${hayNovedad} && audioEnabled) {
+                new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play().catch(()=>{});
+            }
             updateBtn();
             setTimeout(() => location.reload(), 60000);
         </script>
     </body>
     </html>
-  `);
+    `);
 });
 
 app.listen(10000, '0.0.0.0');
