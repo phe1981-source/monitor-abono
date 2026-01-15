@@ -241,11 +241,17 @@ app.get('/', (req, res) => {
                 } catch(e){}
             }
 
-            if (${hayNovedad} && sonidoActivado) {
+// Solo suena si hay novedad Y si no hemos pitado ya para este número de alertas
+            const totalAlertas = ${totalAcumulado};
+            const ultimaAlertaNotificada = parseInt(sessionStorage.getItem('ultimaAlertaNotificada') || '0');
+
+            if (${hayNovedad} && sonidoActivado && totalAlertas > ultimaAlertaNotificada) {
                 sonar();
                 if (Notification.permission === "granted") {
                     new Notification("🚨 NUEVA ENTRADA", { body: "Detectado nuevo evento disponible." });
                 }
+                // Guardamos que ya hemos avisado para este total de alertas
+                sessionStorage.setItem('ultimaAlertaNotificada', totalAlertas);
             }
 
             updateBtn();
