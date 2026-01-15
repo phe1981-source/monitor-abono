@@ -107,10 +107,14 @@ async function iniciarMonitor() {
                 timeoutPromise
             ]);
 
-            if (resultado && resultado.url) {
-                console.log(`✅ [LOOP] Link recibido.`);
-                linksDirectos.unshift({ nombre, url: resultado.url, hora: ahoraHora });
-            }
+           if (resultado && resultado.url) {
+    console.log(`✅ [LOOP] Link recibido vía: ${resultado.metodo}`);
+    linksDirectos.unshift({ 
+        nombre: `${nombre} (${resultado.metodo})`, // Añadimos el método al nombre
+        url: resultado.url, 
+        hora: ahoraHora 
+    });
+}
         } catch (err) {
             console.log(`⚠️ [LOOP] El extractor tardó demasiado o falló para "${nombre}". Continuando loop principal...`);
             // Forzamos cierre de páginas por si acaso quedó algo abierto
