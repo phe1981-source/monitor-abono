@@ -119,68 +119,149 @@ iniciarMonitor();
 // --- DASHBOARD ---
 app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
+  const totalAcumulado = historialNovedades.length;
+  const novedadesN = historialNovedades.filter(h => h.nuevo).length;
+
   res.send(`
     <!DOCTYPE html>
-    <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
-      <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
-        <div style="text-align:right; margin-bottom:20px;">
-          <button id="btnSonido" onclick="activarTodo()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">Cargando Alertas...</button>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Abono Monitor PRO</title>
+        <style>
+            body { background: #050505; color: #eee; font-family: 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; }
+            .container { max-width: 900px; margin: auto; }
+            
+            /* --- CABECERA: ALERTAS 12H --- */
+            .main-counter { 
+                text-align: center; 
+                padding: 40px 20px; 
+                background: linear-gradient(145deg, #0a0a0a, #111);
+                border-radius: 24px;
+                border: 1px solid #222;
+                margin-bottom: 20px;
+            }
+            .total-count { font-size: 8em; font-weight: 800; line-height: 1; margin: 0; display: inline-block; }
+            .badge-novedad { 
+                font-size: 2.5em; 
+                vertical-align: top; 
+                font-weight: bold;
+                margin-left: 10px;
+            }
+            .rojo-brillante { color: #ff0033; text-shadow: 0 0 20px rgba(255, 0, 51, 0.4); }
+            .gris-apagado { color: #333; }
+
+            /* --- EVENTOS TOTALES --- */
+            .sub-counter {
+                display: flex; justify-content: center; align-items: center;
+                gap: 15px; margin-bottom: 20px; background: #0a0a0a; padding: 15px;
+                border-radius: 15px; border: 1px solid #1a1a1a;
+            }
+            .sub-counter span { color: #B9C800; font-size: 1.8em; font-weight: bold; }
+
+            /* --- STATUS BAR --- */
+            .status-bar {
+                display: grid; grid-template-columns: repeat(3, 1fr);
+                gap: 10px; margin-bottom: 30px; font-size: 0.85em; text-transform: uppercase; letter-spacing: 1px;
+            }
+            .status-item { background: #111; padding: 10px; border-radius: 8px; text-align: center; color: #888; }
+            .status-value { color: #fff; display: block; font-size: 1.2em; margin-top: 5px; }
+
+            /* --- SECCIONES --- */
+            .grid-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+            .box { background: #0a0a0a; border-radius: 15px; padding: 20px; border: 1px solid #222; }
+            h3 { margin-top: 0; font-size: 0.9em; text-transform: uppercase; color: #555; border-bottom: 1px solid #222; padding-bottom: 10px; }
+            
+            .btn-alert { 
+                width: 100%; padding: 15px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer;
+                transition: 0.3s; margin-bottom: 20px;
+            }
+            
+            a.link-card {
+                display: block; background: #002200; color: #00ff00; text-decoration: none;
+                padding: 12px; border-radius: 8px; margin-bottom: 8px; border: 1px solid #004400;
+                font-weight: bold; text-align: center; font-size: 0.9em;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <button id="btnSonido" onclick="activarTodo()" class="btn-alert" style="background: #222; color: #888;">
+                CARGANDO ALERTAS...
+            </button>
+
+            <div class="main-counter">
+                <div style="color: #666; text-transform: uppercase; letter-spacing: 3px; font-size: 0.9em; margin-bottom: 10px;">Alertas Acumuladas</div>
+                <h1 class="total-count">${totalAcumulado}</h1>
+                <span class="badge-novedad ${novedadesN > 0 ? 'rojo-brillante' : 'gris-apagado'}">
+                    (+${novedadesN})
+                </span>
+            </div>
+
+            <div class="sub-counter">
+                <small style="color: #555; text-transform: uppercase;">Cartelera Total:</small>
+                <span>${listaLimpia.length} Eventos</span>
+            </div>
+
+            <div class="status-bar">
+                <div class="status-item">Última lectura <span class="status-value">${ultimaActualizacion}</span></div>
+                <div class="status-item">Próxima en <span class="status-value">${proximoEscaneo}</span></div>
+                <div class="status-item">Estado <span class="status-value" style="color: #B9C800">${logEstado}</span></div>
+            </div>
+
+            <div class="grid-sections">
+                <div class="box">
+                    <h3>🚀 Links Directos</h3>
+                    ${linksDirectos.slice(0, 5).map(l => `
+                        <a href="${l.url}" target="_blank" class="link-card">${l.nombre} <br> <small style="opacity:0.6">${l.hora}</small></a>
+                    `).join('') || '<p style="color:#333; text-align:center;">Buscando links...</p>'}
+                </div>
+                <div class="box">
+                    <h3>🔔 Historial Reciente</h3>
+                    <div style="max-height: 300px; overflow-y: auto;">
+                        ${historialNovedades.slice(0, 10).map(h => `
+                            <div style="padding: 10px 0; border-bottom: 1px solid #1a1a1a; font-size: 0.9em; ${h.nuevo ? 'color: #ff0033; font-weight: bold;' : 'color: #888;'}">
+                                <small>[${h.hora}]</small> ${h.nombre}
+                            </div>
+                        `).join('') || '<p style="color:#333;">Silencio total...</p>'}
+                    </div>
+                </div>
+            </div>
         </div>
-        <header style="text-align:center; margin-bottom:40px;">
-          <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:2px;">Eventos Totales</div>
-          <div style="font-size:7em; font-weight:bold; color:#B9C800; line-height:1;">${listaLimpia.length}</div>
-          <p style="color:#555;">Estado: <span style="color:#ccc;">${logEstado}</span> | Sincro: <span style="color:#ccc;">${ultimaActualizacion}</span></p>
-        </header>
-        <section style="margin-bottom:30px;">
-          <h3 style="color:#00ff00; border-left:4px solid #00ff00; padding-left:10px;">🚀 Links Directos</h3>
-          <div style="background:#001a00; border:1px solid #004400; padding:15px; border-radius:12px;">
-            ${linksDirectos.map(l => `<div style="margin-bottom:8px;"><a href="${l.url}" target="_blank" style="display:block; color:#fff; font-weight:bold; background:#004d00; padding:12px; border-radius:8px; text-align:center; text-decoration:none; border:1px solid #00ff00;">${l.nombre} [${l.hora}]</a></div>`).join('') || '<p style="color:#444;">Esperando nuevas entradas con link...</p>'}
-          </div>
-        </section>
-        <section>
-          <h3 style="color:#ff4400; border-left:4px solid #ff4400; padding-left:10px;">🔔 Historial</h3>
-          <div style="background:#111; padding:15px; border-radius:12px; max-height:250px; overflow-y:auto; border:1px solid #222;">
-            ${historialNovedades.map(h => `<p style="margin:8px 0; border-bottom:1px solid #222; padding-bottom:5px; ${h.nuevo ? 'color:#ff0000; font-weight:bold;' : 'color:orange;'}">[${h.hora}] ${h.nombre}</p>`).join('') || '<p style="color:#444;">Sin actividad todavía.</p>'}
-          </div>
-        </section>
-      </div>
 
-      <script>
-        const tieneNovedades = ${hayNovedad};
-        let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
-        
-        function updateBtn() {
-            const btn = document.getElementById('btnSonido');
-            btn.innerText = sonidoActivado ? '🔊 Alertas Activas' : '🔇 Activar Alertas';
-            btn.style.background = sonidoActivado ? '#00ff00' : '#444';
-            btn.style.color = sonidoActivado ? '#000' : '#fff';
-        }
+        <script>
+            let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
+            const hayNovedades = ${hayNovedad};
 
-        async function activarTodo() {
-            sonidoActivado = !sonidoActivado;
-            sessionStorage.setItem('sonidoLocal', sonidoActivado);
+            function updateBtn() {
+                const btn = document.getElementById('btnSonido');
+                btn.innerText = sonidoActivado ? '🔊 ALERTAS ACTIVAS' : '🔇 ALERTAS DESACTIVADAS';
+                btn.style.background = sonidoActivado ? '#B9C800' : '#222';
+                btn.style.color = sonidoActivado ? '#000' : '#888';
+            }
+
+            async function activarTodo() {
+                sonidoActivado = !sonidoActivado;
+                sessionStorage.setItem('sonidoLocal', sonidoActivado);
+                updateBtn();
+                if (sonidoActivado && Notification.permission !== "granted") {
+                    await Notification.requestPermission();
+                }
+            }
+
+            if (hayNovedades && sonidoActivado) {
+                new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play().catch(() => {});
+                if (Notification.permission === "granted") {
+                    new Notification("🚨 NUEVO EVENTO", { body: "Se ha detectado una novedad en Abonoteatro" });
+                }
+            }
+
             updateBtn();
-            if (sonidoActivado && Notification.permission !== "granted") {
-                await Notification.requestPermission();
-            }
-        }
-
-        if (tieneNovedades && sonidoActivado) {
-            const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-            audio.play().catch(() => console.log("Clic necesario para audio"));
-
-            if (Notification.permission === "granted") {
-                new Notification("🚨 ABONOTEATRO", {
-                    body: "¡Nuevo evento detectado!",
-                    icon: "https://compras.abonoteatro.com/wp-content/uploads/2016/09/cropped-Logo-Abonoteatro-Verde-192x192.png"
-                });
-            }
-        }
-
-        updateBtn();
-        setTimeout(() => location.reload(), 60000);
-      </script>
+            setTimeout(() => location.reload(), 60000);
+        </script>
     </body>
+    </html>
   `);
 });
 
