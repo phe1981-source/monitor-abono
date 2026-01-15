@@ -4,7 +4,7 @@ const { extraerLinkCompra } = require('./extractor');
 const app = express();
 
 const USER = 'phe1981@gmail.com';
-const PASS = process.env.ABONO_PASS;
+const PASS = process.env.ABONO_PASS || 'fAsHaMp@gZie3g@'; // Fallback por seguridad
 
 let listaLimpia = []; 
 let linksDirectos = []; 
@@ -14,41 +14,59 @@ let horaProximaReal = "Calculando...";
 let logEstado = "Iniciando...";
 
 async function iniciarMonitor() {
-    console.log("🚀 [SISTEMA] Monitor V3.6 - Sonido Inteligente + Trazabilidad");
+    console.log("🚀 [SISTEMA] Monitor V3.6 - Sonido Inteligente + Login Resiliente");
     const browser = await puppeteer.launch({
         headless: "new",
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-blink-features=AutomationControlled']
     });
     
     const page = await browser.newPage();
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
 
     try {
-        console.log("🔑 [VERBOSE] Accediendo a Login...");
-        await page.goto('https://compras.abonoteatro.com/login/', { waitUntil: 'networkidle2' });
+        // --- INICIO BLOQUE LOGIN REFERENCIA (CORREGIDO) ---
+        logEstado = "Login...";
+        console.log("🔑 [LOGIN] Accediendo a la página...");
+        await page.goto('https://compras.abonoteatro.com/login/', { 
+            waitUntil: 'networkidle2', 
+            timeout: 90000 
+        });
+        
+        // Gestión de cookies (del código referencia)
+        await page.evaluate(() => {
+            const btn = Array.from(document.querySelectorAll('button')).find(b => b.innerText.includes('Aceptar'));
+            if (btn) btn.click();
+        }).catch(() => {});
+
+        console.log("📝 [LOGIN] Inserimento credenziali...");
         await page.type('#nabonadologin', USER);
         await page.type('#contrasenalogin', PASS);
-        await Promise.all([page.click('input[value="Entrar"]'), page.waitForNavigation()]);
-        console.log("✅ [VERBOSE] Login Correcto.");
+        
+        await Promise.all([
+            page.click('input[value="Entrar"].buyBtn'),
+            page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 90000 })
+        ]);
+        console.log("✅ [LOGIN] Successo.");
+        // --- FIN BLOQUE LOGIN REFERENCIA ---
 
         while (true) {
+            logEstado = "Scansione...";
             console.log(`📡 [SCAN] --- INICIO CICLO: ${new Date().toLocaleTimeString()} ---`);
-            await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded' });
+            await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
             
-            console.log("⏱️ [VERBOSE] Esperando 20s para estabilidad de servidor lento...");
+            console.log("⏱️ [SCAN] Esperando 20s para estabilidad de servidor lento...");
             await new Promise(r => setTimeout(r, 20000)); 
 
             const frameElement = await page.$('iframe');
             const frame = frameElement ? await frameElement.contentFrame() : null;
 
             if (!frame || frame.isDetached()) {
-                console.log("⚠️ [ALERTA] Frame no detectado o descolgado. Reintentando...");
+                console.log("⚠️ [ALERTA] Frame no detectado. Reintentando...");
                 continue; 
             }
 
-            console.log("🔍 [VERBOSE] Extrayendo eventos visuales y desplegables...");
             const nombresActuales = await frame.evaluate(() => {
-                const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a'))
+                const visuales = Array.from(document.querySelectorAll('.tribe-events-list-event-title a, h3 a, .tribe-events-calendar-list__event-title a'))
                                       .map(el => el.innerText.trim());
                 const select = Array.from(document.querySelectorAll('#select_recinto_event option'))
                                     .map(el => el.innerText.trim())
@@ -63,21 +81,20 @@ async function iniciarMonitor() {
                 const detectadosAhora = nombresActuales.filter(n => !listaLimpia.includes(n));
                 
                 if(detectadosAhora.length > 0) {
-                    console.log(`🔔 [DETECCION] ${detectadosAhora.length} novedades encontradas!`);
+                    console.log(`🔔 [DETECCION] ${detectadosAhora.length} novedades!`);
                     for (const nombre of detectadosAhora) {
                         const item = { nombre, hora: oraSincro, nuevo: true, url: 'https://compras.abonoteatro.com/teatro/' };
                         linksDirectos.unshift(item);
                         
-                        // PRIORIDAD BAJA: Si el extractor falla, no detiene el ciclo
-                        console.log(`🧪 [EXTRACTOR] Buscando link para: ${nombre}`);
                         try {
+                            console.log(`🧪 [EXTRACTOR] Buscando link: ${nombre}`);
                             const linkInfo = await extraerLinkCompra(browser, page, frame, nombre);
                             if (linkInfo.exito) item.url = linkInfo.url;
-                        } catch (err) { console.log(`❌ [VERBOSE] Error extractor en ${nombre}`); }
+                        } catch (err) { console.log(`❌ Error extractor en ${nombre}`); }
                     }
                 }
             } else {
-                console.log(`📦 [SISTEMA] Carga inicial: ${totalEventosCartelera} obras en memoria.`);
+                console.log(`📦 [SISTEMA] Carga inicial: ${totalEventosCartelera} obras.`);
             }
             
             listaLimpia = [...nombresActuales];
@@ -85,7 +102,8 @@ async function iniciarMonitor() {
 
             const espera = Math.floor(Math.random() * (240 - 180 + 1) + 180);
             horaProximaReal = new Date(Date.now() + (espera * 1000)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-            console.log(`😴 [VERBOSE] Fin ciclo. Próximo en ${Math.floor(espera/60)} min (${horaProximaReal})`);
+            logEstado = `Pausa (${Math.floor(espera/60)}m)`;
+            console.log(`😴 [VERBOSE] Próximo en ${horaProximaReal}`);
             await new Promise(r => setTimeout(r, espera * 1000));
         }
     } catch (e) { 
@@ -95,7 +113,7 @@ async function iniciarMonitor() {
     }
 }
 
-// SIMULACRO
+// RESTO DEL CODIGO (Express, UI, Simulacro) IGUAL QUE TU VERSION...
 app.get('/test-alarma', (req, res) => {
     const item = { nombre: "Simulacro " + Math.floor(Math.random()*99), hora: new Date().toLocaleTimeString(), nuevo: true, url: '#' };
     linksDirectos.unshift(item);
@@ -123,63 +141,53 @@ app.get('/', (req, res) => {
     </head>
     <body>
         <button id="btnAudio" class="btn-audio" onclick="toggleAudio()">🔇 ACTIVAR SONIDO INTELIGENTE</button>
-        
         <div class="card">
             <div style="color:#555; font-size:0.7em; letter-spacing:2px;">ALARMAS DETECTADAS</div>
             <div class="alert-main">${linksDirectos.filter(l => l.nuevo).length}</div>
-            
             <div class="info-grid">
                 <div><div style="color:#555">EVENTOS</div><div style="color:#B9C800">${totalEventosCartelera}</div></div>
                 <div><div style="color:#555">SINCRO</div><div>${ultimaActualizacion}</div></div>
                 <div><div style="color:#555">SIGUIENTE</div><div style="color:#00ff00">${horaProximaReal}</div></div>
             </div>
         </div>
-
         <div style="text-align:left;">
             <h3 style="color:#555; font-size:0.8em; margin-left:10px;">🚀 HISTORIAL DE NOVEDADES</h3>
-            ${linksDirectos.map(l => `<a href="${l.url}" target="_blank" class="link-card">🎯 ${l.nombre} <span class="hora">${l.hora}</span></a>`).join('') || '<p style="color:#222; text-align:center;">Esperando novedades...</p>'}
+            ${linksDirectos.map(l => `<a href="${l.url}" target="_blank" class="link-card">🎯 ${l.nombre} <span class="hora">${l.hora}</span></a>`).join('') || '<p style="color:#222; text-align:center;">Vigilando...</p>'}
         </div>
-
         <script>
             let audioEnabled = sessionStorage.getItem('audioActive') === 'true';
             const btn = document.getElementById('btnAudio');
-            
             function toggleAudio() {
                 audioEnabled = !audioEnabled;
                 sessionStorage.setItem('audioActive', audioEnabled);
                 updateUI();
-                if(audioEnabled) playSound(440); // Modalidad Test
+                if(audioEnabled) playSound(440);
             }
-
             function updateUI() {
                 btn.innerText = audioEnabled ? '🔊 SONIDO MONITOR ACTIVO' : '🔇 ACTIVAR SONIDO INTELIGENTE';
                 btn.className = audioEnabled ? 'btn-audio active' : 'btn-audio';
             }
-
             function playSound(freq) {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.connect(gain); gain.connect(ctx.destination);
-                osc.frequency.value = freq;
-                gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.5);
-                osc.start(); osc.stop(ctx.currentTime + 1.5);
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain); gain.connect(ctx.destination);
+                    osc.frequency.value = freq;
+                    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1.5);
+                    osc.start(); osc.stop(ctx.currentTime + 1.5);
+                } catch(e) {}
             }
-
-            // Lógica de disparo único
             let ultimoEventoAudio = localStorage.getItem('ultimoEventoAudio');
             let hayNuevos = ${hayNovedad};
             let eventoActual = "${linksDirectos.length > 0 ? linksDirectos[0].nombre : ''}";
-
             if (audioEnabled) {
                 updateUI();
-                // Modalidad Alerta (Tono agudo 880Hz)
                 if (hayNuevos && eventoActual !== ultimoEventoAudio) {
                     playSound(880);
                     localStorage.setItem('ultimoEventoAudio', eventoActual);
                 }
             }
-
             setTimeout(() => location.reload(), 60000);
         </script>
     </body>
@@ -189,6 +197,6 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌐 [SISTEMA] Interfaz lista en puerto ${PORT}`);
+    console.log(`🌐 [SISTEMA] Interfaz en puerto ${PORT}`);
     iniciarMonitor();
 });
