@@ -115,52 +115,98 @@ app.get('/', (req, res) => {
   const totalAcumulado = historialNovedades.length;
   const novedadesN = historialNovedades.filter(h => h.nuevo).length;
 
+  // Cálculo de hora próxima lectura
+  // Convertimos "3m 15s" o similar a un objeto Date para mostrar la hora real
+  const ahora = new Date();
+  const [minutos, segundos] = proximoEscaneo.replace('m', '').replace('s', '').split(' ').map(Number);
+  const proximaFecha = new Date(ahora.getTime() + (minutos * 60000) + (segundos * 1000));
+  const horaProxima = proximaFecha.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+
   res.send(`
     <!DOCTYPE html>
     <html lang="es">
     <head>
         <meta charset="UTF-8">
         <style>
-            body { background: #050505; color: #eee; font-family: sans-serif; margin: 0; padding: 20px; text-align: center;}
-            .container { max-width: 900px; margin: auto; }
-            .main-counter { padding: 40px; background: #0a0a0a; border-radius: 24px; border: 1px solid #222; margin-bottom: 20px; }
-            .total-count { font-size: 8em; font-weight: bold; margin: 0; }
-            .badge-novedad { font-size: 2.5em; font-weight: bold; margin-left: 10px; }
-            .rojo-brillante { color: #ff0033; text-shadow: 0 0 20px rgba(255,0,51,0.5); }
-            .gris-apagado { color: #222; }
-            .status-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 20px; }
-            .status-item { background: #111; padding: 10px; border-radius: 8px; font-size: 0.8em; color: #888; }
-            .status-value { color: #fff; display: block; font-size: 1.2em; }
-            .grid-sections { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; text-align: left; }
-            .box { background: #0a0a0a; border-radius: 15px; padding: 20px; border: 1px solid #222; }
-            .btn-alert { width: 100%; padding: 15px; border-radius: 12px; border: none; font-weight: bold; cursor: pointer; margin-bottom: 20px; }
-            .link-card { display: block; background: #002200; color: #00ff00; padding: 12px; border-radius: 8px; margin-bottom: 8px; text-decoration: none; border: 1px solid #004400; text-align:center;}
+            body { background: #050505; color: #eee; font-family: 'Segoe UI', sans-serif; margin: 0; padding: 20px; text-align: center;}
+            .container { max-width: 800px; margin: auto; }
+            
+            /* --- CONTADOR GIGANTE UNIFICADO --- */
+            .main-counter { padding: 50px 20px; background: #0a0a0a; border-radius: 30px; border: 1px solid #222; margin-bottom: 25px; }
+            .counter-group { display: flex; justify-content: center; align-items: center; gap: 20px; font-size: 9em; font-weight: 900; line-height: 1; }
+            .total-count { color: #fff; }
+            .badge-novedad { font-size: 1em; } /* Mismo tamaño que el contador */
+            .rojo-brillante { color: #ff0033; text-shadow: 0 0 30px rgba(255,0,51,0.6); }
+            .gris-apagado { color: #1a1a1a; }
+
+            /* --- STATUS BAR REFINADA --- */
+            .status-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px; }
+            .status-item { background: #111; padding: 15px; border-radius: 12px; border: 1px solid #1a1a1a; }
+            .label { color: #555; font-size: 0.7em; text-transform: uppercase; letter-spacing: 2px; display: block; margin-bottom: 5px;}
+            .status-value { color: #fff; font-size: 1.4em; font-weight: bold; }
+            .time-left { color: #B9C800; font-size: 0.9em; margin-top: 3px; display: block; }
+
+            /* --- LAYOUT VERTICAL --- */
+            .sections-vertical { display: flex; flex-direction: column; gap: 25px; text-align: left; }
+            .box { background: #0a0a0a; border-radius: 20px; padding: 25px; border: 1px solid #222; }
+            h3 { margin: 0 0 20px 0; font-size: 0.8em; text-transform: uppercase; letter-spacing: 2px; color: #444; border-bottom: 1px solid #1a1a1a; padding-bottom: 10px; }
+            
+            .btn-alert { width: 100%; padding: 20px; border-radius: 15px; border: none; font-weight: 900; cursor: pointer; margin-bottom: 25px; font-size: 1em; letter-spacing: 2px; transition: 0.3s; }
+            .link-card { display: block; background: #001a00; color: #00ff00; padding: 18px; border-radius: 12px; margin-bottom: 12px; text-decoration: none; border: 1px solid #004400; font-weight: bold; font-size: 1.1em; transition: 0.2s; }
+            .link-card:hover { background: #002500; border-color: #00ff00; }
+            .historial-item { padding: 12px 0; border-bottom: 1px solid #111; font-size: 1em; display: flex; justify-content: space-between; }
         </style>
     </head>
     <body>
         <div class="container">
-            <button id="btnSonido" onclick="activarTodo()" class="btn-alert">CARGANDO...</button>
+            <button id="btnSonido" onclick="activarTodo()" class="btn-alert">CARGANDO SISTEMA...</button>
 
             <div class="main-counter">
-                <div style="color:#666; letter-spacing:2px;">ALERTAS ACUMULADAS</div>
-                <h1 class="total-count">${totalAcumulado}</h1>
-                <span class="badge-novedad ${novedadesN > 0 ? 'rojo-brillante' : 'gris-apagado'}">(+${novedadesN})</span>
+                <div class="label" style="margin-bottom:15px">Alertas Acumuladas</div>
+                <div class="counter-group">
+                    <span class="total-count">${totalAcumulado}</span>
+                    <span class="badge-novedad ${novedadesN > 0 ? 'rojo-brillante' : 'gris-apagado'}">
+                        (+${novedadesN})
+                    </span>
+                </div>
             </div>
 
             <div class="status-bar">
-                <div class="status-item">ÚLTIMA LECTURA <span class="status-value">${ultimaActualizacion}</span></div>
-                <div class="status-item">PRÓXIMA EN <span class="status-value">${proximoEscaneo}</span></div>
-                <div class="status-item">EVENTOS TOTALES <span class="status-value" style="color:#B9C800">${listaLimpia.length}</span></div>
+                <div class="status-item">
+                    <span class="label">Última Lectura</span>
+                    <span class="status-value">${ultimaActualizacion}</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Próxima a las</span>
+                    <span class="status-value">${horaProxima}</span>
+                    <span class="time-left">en ${proximoEscaneo}</span>
+                </div>
+                <div class="status-item">
+                    <span class="label">Cartelera</span>
+                    <span class="status-value" style="color:#B9C800">${listaLimpia.length}</span>
+                </div>
             </div>
 
-            <div class="grid-sections">
+            <div class="sections-vertical">
                 <div class="box">
-                    <h3>🚀 LINKS DIRECTOS</h3>
-                    ${linksDirectos.slice(0,5).map(l => `<a href="${l.url}" target="_blank" class="link-card">${l.nombre}<br><small>${l.hora}</small></a>`).join('') || 'Esperando...'}
+                    <h3>🚀 Links Directos de Compra</h3>
+                    ${linksDirectos.slice(0, 5).map(l => `
+                        <a href="${l.url}" target="_blank" class="link-card">
+                            ${l.nombre} <span style="float:right; font-size:0.7em; opacity:0.5">${l.hora}</span>
+                        </a>
+                    `).join('') || '<p style="color:#333; text-align:center;">No hay links capturados todavía.</p>'}
                 </div>
+
                 <div class="box">
-                    <h3>🔔 HISTORIAL</h3>
-                    ${historialNovedades.slice(0,10).map(h => `<div style="padding:5px 0; border-bottom:1px solid #111; font-size:0.9em; ${h.nuevo?'color:#ff0033':''}">[${h.hora}] ${h.nombre}</div>`).join('') || 'Vacio'}
+                    <h3>🔔 Historial de Eventos Detectados</h3>
+                    <div style="max-height: 400px; overflow-y: auto; padding-right:10px;">
+                        ${historialNovedades.slice(0, 15).map(h => `
+                            <div class="historial-item" style="${h.nuevo ? 'color: #ff0033; font-weight: bold;' : 'color: #888;'}">
+                                <span>${h.nombre}</span>
+                                <span style="opacity:0.5; font-size:0.9em;">${h.hora}</span>
+                            </div>
+                        `).join('') || '<p style="color:#333; text-align:center;">Historial vacío.</p>'}
+                    </div>
                 </div>
             </div>
         </div>
@@ -183,9 +229,7 @@ app.get('/', (req, res) => {
             }
 
             function sonar() {
-                // Modo A: Archivo
                 new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play().catch(()=>{});
-                // Modo B: Sintetizador
                 try {
                     const ctx = new (window.AudioContext || window.webkitAudioContext)();
                     const osc = ctx.createOscillator();
@@ -200,7 +244,7 @@ app.get('/', (req, res) => {
             if (${hayNovedad} && sonidoActivado) {
                 sonar();
                 if (Notification.permission === "granted") {
-                    new Notification("🚨 ABONOTEATRO", { body: "¡Nuevas entradas detectadas!" });
+                    new Notification("🚨 NUEVA ENTRADA", { body: "Detectado nuevo evento disponible." });
                 }
             }
 
@@ -211,7 +255,6 @@ app.get('/', (req, res) => {
     </html>
   `);
 });
-
 app.get('/test-alarma', (req, res) => {
     historialNovedades.unshift({ nombre: "TEST DE SONIDO DUAL", hora: "00:00", nuevo: true });
     res.send("<script>window.location.href='/'</script>");
