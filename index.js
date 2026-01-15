@@ -5,7 +5,6 @@ const app = express();
 
 // --- CONFIGURACIÓN SEGURA ---
 const USER = 'phe1981@gmail.com';
-// Ya no hay password en el texto. Se lee de la variable de entorno ABONO_PASS
 const PASS = process.env.ABONO_PASS; 
 
 if (!PASS) {
@@ -18,15 +17,13 @@ let linksDirectos = [];
 let logEstado = "Iniciando...";
 let ultimaActualizacion = "Sin datos";
 let proximoEscaneo = "Calculando...";
-let ultimasNovedadesDetectadas = 0; 
-let listaBrutaLength = 0; 
 
 function obtenerEsperaAleatoria(min, max) {
   return Math.floor(Math.random() * (max - min + 1) + min);
 }
 
 async function iniciarMonitor() {
-  console.log("🚀 [SISTEMA] Iniciando Bot V4.1 - Distributed Architecture Edition + Audio");
+  console.log("🚀 [SISTEMA] Iniciando Bot V4.2 - Sniper Edition");
   
   const browser = await puppeteer.launch({
     headless: "new",
@@ -56,6 +53,9 @@ async function iniciarMonitor() {
     console.log("✅ [SISTEMA] Login exitoso.");
 
     while (true) {
+      // RESET DE NOVEDADES AL INICIO DEL CICLO (Para silenciar el BIP)
+      historialNovedades.forEach(h => h.nuevo = false);
+
       logEstado = "Scanning...";
       await page.goto('https://compras.abonoteatro.com/teatro/', { waitUntil: 'domcontentloaded', timeout: 90000 });
       await new Promise(r => setTimeout(r, 20000)); 
@@ -73,29 +73,23 @@ async function iniciarMonitor() {
         });
 
         if (data && data.length > 0) {
-          listaBrutaLength = data.length;
           const nombresActuales = [...new Set(data)];
           const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
 
           if (listaLimpia.length === 0) {
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
-            ultimasNovedadesDetectadas = 0;
           } else {
             const anteriorNombres = listaLimpia.map(item => item.nombre);
             const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
             
-            ultimasNovedadesDetectadas = detectadosAhora.length;
-
             if (detectadosAhora.length > 0) {
-              historialNovedades.forEach(h => h.nuevo = false);
+              console.log(`🔔 [ALERTA] ${detectadosAhora.length} novedades detectadas!`);
               for (const nombre of detectadosAhora) {
                 historialNovedades.unshift({ nombre, hora: ahoraHora, nuevo: true });
                 
-                // Extracción con timeout (Garantía FDIR)
-                const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), 30000));
                 try {
-                    const resultado = await Promise.race([extraerLinkCompra(browser, page, frame, nombre), timeoutPromise]);
+                    const resultado = await extraerLinkCompra(browser, page, frame, nombre);
                     if (resultado && resultado.url) {
                         linksDirectos.unshift({ nombre: `${nombre} (${resultado.metodo})`, url: resultado.url, hora: ahoraHora });
                     }
@@ -110,6 +104,7 @@ async function iniciarMonitor() {
 
       const espera = obtenerEsperaAleatoria(180, 240);
       proximoEscaneo = `${Math.floor(espera/60)}m ${espera%60}s`;
+      console.log(`😴 Ciclo terminado. Espera: ${proximoEscaneo}`);
       await new Promise(r => setTimeout(r, espera * 1000)); 
     }
   } catch (error) {
@@ -121,14 +116,15 @@ async function iniciarMonitor() {
 
 iniciarMonitor();
 
-// --- DASHBOARD V4.0.0 ---
+// --- DASHBOARD ---
 app.get('/', (req, res) => {
   const hayNovedad = historialNovedades.some(h => h.nuevo);
   res.send(`
+    <!DOCTYPE html>
     <body style="background:#000; color:#fff; font-family:sans-serif; padding:20px;">
       <div style="max-width:800px; margin:auto; background:#0a0a0a; padding:30px; border-radius:20px; border:1px solid #222;">
         <div style="text-align:right; margin-bottom:20px;">
-          <button id="btnSonido" onclick="activarTodo()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">Activar Alertas</button>
+          <button id="btnSonido" onclick="activarTodo()" style="background:#444; color:#fff; border:none; padding:10px 20px; border-radius:10px; cursor:pointer;">Cargando Alertas...</button>
         </div>
         <header style="text-align:center; margin-bottom:40px;">
           <div style="color:#B9C800; font-size:1.1em; text-transform:uppercase; letter-spacing:2px;">Eventos Totales</div>
@@ -150,6 +146,7 @@ app.get('/', (req, res) => {
       </div>
 
       <script>
+        const tieneNovedades = ${hayNovedad};
         let sonidoActivado = sessionStorage.getItem('sonidoLocal') === 'true';
         
         function updateBtn() {
@@ -160,27 +157,21 @@ app.get('/', (req, res) => {
         }
 
         async function activarTodo() {
-            // Activar Sonido
             sonidoActivado = !sonidoActivado;
             sessionStorage.setItem('sonidoLocal', sonidoActivado);
             updateBtn();
-
-            // Solicitar Permiso Notificaciones
             if (sonidoActivado && Notification.permission !== "granted") {
                 await Notification.requestPermission();
             }
         }
 
-        // Lógica de disparo de alertas
-        if (${hayNovedad} && sonidoActivado) {
-            // 1. Sonido .ogg (Campana clara)
+        if (tieneNovedades && sonidoActivado) {
             const audio = new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg');
-            audio.play().catch(e => console.log("Audio bloqueado, haz click en la página"));
+            audio.play().catch(() => console.log("Clic necesario para audio"));
 
-            // 2. Notificación de escritorio
             if (Notification.permission === "granted") {
-                new Notification("🚨 ABONOTEATRO: ¡Novedad!", {
-                    body: "Se ha detectado un nuevo evento. ¡Corre!",
+                new Notification("🚨 ABONOTEATRO", {
+                    body: "¡Nuevo evento detectado!",
                     icon: "https://compras.abonoteatro.com/wp-content/uploads/2016/09/cropped-Logo-Abonoteatro-Verde-192x192.png"
                 });
             }
@@ -193,22 +184,28 @@ app.get('/', (req, res) => {
   `);
 });
 
-      if (isAudioEnabled()) audioOverlay.style.display = 'none';
 
-      if (${tieneNovedades} && isAudioEnabled()) {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.frequency.setValueAtTime(880, ctx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1);
-        osc.connect(gain); gain.connect(ctx.destination);
-        osc.start(); osc.stop(ctx.currentTime + 1);
-      }
+// --- RUTA DE SIMULACRO (TEST) ---
+app.get('/test-alarma', (req, res) => {
+    const ahoraHora = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+    
+    // 1. Inyectamos un evento falso en el historial
+    historialNovedades.unshift({ 
+        nombre: "EVENTO DE PRUEBA: HAZ QUE PARE", 
+        hora: ahoraHora, 
+        nuevo: true 
+    });
 
-      setTimeout(() => location.reload(), 60000);
-    </script>
-  `);
+    // 2. Simulamos un link capturado
+    linksDirectos.unshift({ 
+        nombre: "EVENTO DE PRUEBA (Sniper V5.1)", 
+        url: "https://compras.abonoteatro.com/pasarela/simulacro", 
+        hora: ahoraHora 
+    });
+
+    console.log("🧪 [SIMULACRO] Disparando alerta de prueba...");
+    res.send("<h1>Simulacro activado</h1><p>Vuelve al Dashboard para ver la alerta.</p><script>setTimeout(()=>window.location.href='/', 2000)</script>");
 });
 
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, '0.0.0.0');
+app.listen(PORT, '0.0.0.0', () => console.log(`🌍 Dashboard en puerto ${PORT}`));
