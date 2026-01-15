@@ -116,66 +116,98 @@ async function iniciarMonitor() {
 // --- SERVER EXPRESS ---
 
 app.get('/', (req, res) => {
-    const totalAlertas = historialNovedades.length;
+    const hayNovedad = historialNovedades.some(h => h.nuevo);
+    const numAlertas = historialNovedades.length;
     
-    // Logica del badge 5(+1) o (0)
-    let badgeExtra = "";
-    if (novedadesUltimaLectura > 0) {
-        badgeExtra = `<span style="color:#00ff00; font-size:0.4em; vertical-align:middle; margin-left:10px;">(+${novedadesUltimaLectura})</span>`;
-    } else {
-        badgeExtra = `<span style="color:#444; font-size:0.4em; vertical-align:middle; margin-left:10px;">(0)</span>`;
-    }
-
     res.send(`
     <!DOCTYPE html>
     <html lang="es">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Monitor Abono</title>
         <style>
-            body { background: #050505; color: #eee; font-family: -apple-system, BlinkMacSystemFont, sans-serif; text-align: center; padding: 15px; margin: 0; }
+            body { background: #050505; color: #eee; font-family: sans-serif; text-align: center; padding: 15px; margin: 0; }
             .container { max-width: 500px; margin: auto; }
-            .card { background: #0a0a0a; border-radius: 30px; border: 1px solid #151515; padding: 30px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
-            .alert-main { font-size: 7.5em; font-weight: 900; color: #ff0033; line-height: 1; margin: 10px 0; letter-spacing: -5px; }
-            .label { color: #555; text-transform: uppercase; font-size: 0.7em; letter-spacing: 2px; font-weight: bold; }
-            .pulso-box { display: flex; justify-content: space-around; background: #111; padding: 20px; border-radius: 20px; margin-top: 25px; border: 1px solid #1a1a1a; }
+            .card { background: #0a0a0a; border-radius: 25px; border: 1px solid #222; padding: 25px; margin-bottom: 15px; position: relative; }
+            
+            /* Botón de Audio Estilo Toggle */
+            .btn-audio { 
+                width: 100%; padding: 12px; border-radius: 12px; border: none; font-weight: bold; 
+                cursor: pointer; margin-bottom: 15px; transition: 0.3s;
+                background: #222; color: #888;
+            }
+            .btn-audio.active { background: #B9C800; color: #000; box-shadow: 0 0 15px rgba(185, 200, 0, 0.3); }
+
+            .alert-main { font-size: 8em; font-weight: 900; color: #ff0033; line-height: 1; margin: 5px 0; }
+            .label { color: #555; text-transform: uppercase; font-size: 0.75em; letter-spacing: 2px; }
+            .pulso-box { display: flex; justify-content: space-around; background: #111; padding: 15px; border-radius: 15px; margin-top: 20px; border: 1px solid #222; }
             .pulso-val { font-size: 1.8em; font-weight: bold; color: #B9C800; }
-            .link-card { display: block; background: #001a00; color: #00ff00; padding: 18px; border-radius: 15px; text-decoration: none; margin-top: 12px; border: 1px solid #003300; font-weight: bold; transition: 0.3s; }
-            .link-card:active { transform: scale(0.98); background: #002500; }
-            .status { font-size: 0.8em; color: #333; margin-top: 20px; }
-            .dot { height: 8px; width: 8px; background-color: #ff0033; border-radius: 50%; display: inline-block; margin-right: 5px; animation: blink 1s infinite; }
-            @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+            .link-card { display: block; background: #002200; color: #00ff00; padding: 15px; border-radius: 12px; text-decoration: none; margin-top: 10px; border: 1px solid #004400; font-weight: bold; font-size: 0.9em; }
+            .status { font-size: 0.8em; color: #444; margin-top: 15px; }
         </style>
     </head>
     <body>
         <div class="container">
+            <button id="btnAudio" class="btn-audio" onclick="toggleAudio()">🔇 AUDIO DESACTIVADO</button>
+
             <div class="card">
-                <div class="label"><span class="dot"></span>Live Alertas (12h)</div>
-                <div class="alert-main">${totalAlertas}${badgeExtra}</div>
+                <div class="label">Alertas Detectadas</div>
+                <div class="alert-main">${numAlertas}</div>
                 
                 <div class="pulso-box">
                     <div>
-                        <div class="label" style="font-size:0.55em">Cartelera</div>
+                        <div class="label" style="font-size:0.6em">Total Obras</div>
                         <div class="pulso-val">${totalEventosCartelera}</div>
                     </div>
                     <div>
-                        <div class="label" style="font-size:0.55em">Sincro</div>
-                        <div class="pulso-val" style="color:#fff; font-size:1.3em; margin-top:4px;">${ultimaActualizacion}</div>
+                        <div class="label" style="font-size:0.6em">Sincro</div>
+                        <div class="pulso-val" style="color:#fff; font-size:1.1em; margin-top:5px;">${ultimaActualizacion}</div>
                     </div>
                 </div>
-                <div style="margin-top:15px; font-size:0.7em; color:#222;">Sistema: ${logEstado}</div>
             </div>
 
             <div style="text-align:left;">
-                <h3 class="label" style="margin-left:15px; margin-bottom:10px;">🚀 Links Pata Negra</h3>
-                ${linksDirectos.map(l => `<a href="${l.url}" target="_blank" class="link-card">🎯 ${l.nombre} <span style="float:right; font-size:0.7em; opacity:0.5;">${l.hora}</span></a>`).join('') || '<p style="color:#111; text-align:center; margin-top:20px;">Vigilando el teatro...</p>'}
+                <h3 class="label" style="margin-left:10px;">🚀 Links Pata Negra</h3>
+                ${linksDirectos.map(l => `<a href="${l.url}" target="_blank" class="link-card">🎯 ${l.nombre}</a>`).join('') || '<p style="color:#222; text-align:center;">Vigilando...</p>'}
             </div>
             
-            <div class="status">Próximo escaneo: <span style="color:#444">${horaProximaReal}</span></div>
+            <div class="status">Próximo escaneo: <span style="color:#00ff00">${horaProximaReal}</span></div>
         </div>
+
         <script>
-            // Refresh automatico ogni 60 secondi
+            let audioEnabled = sessionStorage.getItem('audioActive') === 'true';
+            const btn = document.getElementById('btnAudio');
+
+            function toggleAudio() {
+                audioEnabled = !audioEnabled;
+                sessionStorage.setItem('audioActive', audioEnabled);
+                updateBtn();
+                if(audioEnabled) playSound(true); // Test de confirmación
+            }
+
+            function updateBtn() {
+                btn.innerText = audioEnabled ? '🔊 ALERTAS ACTIVAS' : '🔇 AUDIO DESACTIVADO';
+                btn.className = audioEnabled ? 'btn-audio active' : 'btn-audio';
+            }
+
+            function playSound(isTest = false) {
+                try {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.connect(gain); gain.connect(ctx.destination);
+                    osc.type = 'sine';
+                    osc.frequency.value = isTest ? 440 : 880; // Más agudo para alerta real
+                    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 1);
+                    osc.start(); osc.stop(ctx.currentTime + 1);
+                } catch(e) {}
+            }
+
+            if (${hayNovedad} && audioEnabled) {
+                playSound();
+            }
+
+            updateBtn();
             setTimeout(() => location.reload(), 60000);
         </script>
     </body>
