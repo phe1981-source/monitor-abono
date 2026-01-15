@@ -1,72 +1,56 @@
 /**
- * extractor.js - Versión 3.6 (Multi-Método)
+ * extractor.js - Versión 4.0 (Optimizada para Iframe Dinámico)
  */
 async function extraerLinkCompra(browser, pagePrincipal, frame, nombreEvento) {
-    console.log(`🧪 [LAB] Iniciando pruebas para: "${nombreEvento}"`);
-    let resultados = { m1: "No probado", m2: "No probado", m3: "No probado" };
-    const urlOriginal = pagePrincipal.url();
+    console.log(`📡 [EXTRACTOR] Localizando: "${nombreEvento}"`);
+    let urlDirecta = null;
 
-    // MODO 1: Click Clásico (Pestaña hija)
     try {
-        console.log("🔹 [M1] Probando Click Clásico...");
-        await frame.evaluate((n) => {
-            const target = Array.from(document.querySelectorAll('a')).find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
-            if (target) target.click();
-        }, nombreEvento);
-        const t1 = await browser.waitForTarget(t => t.opener() === pagePrincipal.target(), { timeout: 5000 });
-        const p1 = await t1.page();
-        if (p1) {
-            await p1.waitForSelector('a.buyBtn', { timeout: 4000 });
-            resultados.m1 = await p1.evaluate(() => document.querySelectorAll('a.buyBtn')[1]?.href || "Btn no hallado");
-            await p1.close();
-        }
-    } catch (e) { resultados.m1 = "Error/Timeout"; }
-
-    if (resultados.m1.startsWith('http')) return { url: resultados.m1, metodo: "Click Clásico" };
-
-    // MODO 2: New Page Directo (Robo de HREF)
-    try {
-        console.log("🔹 [M2] Probando Robo de HREF + New Page...");
-        const href = await frame.evaluate((n) => {
-            const target = Array.from(document.querySelectorAll('a')).find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
-            return target ? target.href : null;
-        }, nombreEvento);
-        
-        if (href) {
-            const p2 = await browser.newPage();
-            await p2.goto(href, { waitUntil: 'domcontentloaded', timeout: 8000 });
-            await p2.waitForSelector('a.buyBtn', { timeout: 4000 });
-            resultados.m2 = await p2.evaluate(() => document.querySelectorAll('a.buyBtn')[1]?.href || "Btn no hallado");
-            await p2.close();
-        }
-    } catch (e) { resultados.m2 = "Error/Timeout"; }
-
-    if (resultados.m2.startsWith('http')) return { url: resultados.m2, metodo: "HREF Directo" };
-
-    // MODO 3: Navegación In-Situ (Ir y Volver)
-    try {
-        console.log("🔹 [M3] Probando Navegación In-Situ...");
-        const href = await frame.evaluate((n) => {
-            const target = Array.from(document.querySelectorAll('a')).find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
-            return target ? target.href : null;
+        // 1. Aseguramos que estamos dentro del frame correcto para el clic
+        // Buscamos el enlace por texto exacto o parcial
+        const clickExitoso = await frame.evaluate((n) => {
+            const links = Array.from(document.querySelectorAll('a'));
+            const target = links.find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
+            if (target) {
+                target.scrollIntoView();
+                target.click();
+                return true;
+            }
+            return false;
         }, nombreEvento);
 
-        if (href) {
-            await pagePrincipal.goto(href, { waitUntil: 'networkidle2', timeout: 8000 });
-            await pagePrincipal.waitForSelector('a.buyBtn', { timeout: 4000 });
-            resultados.m3 = await pagePrincipal.evaluate(() => document.querySelectorAll('a.buyBtn')[1]?.href || "Btn no hallado");
-            await pagePrincipal.goto(urlOriginal, { waitUntil: 'domcontentloaded' });
+        if (!clickExitoso) return { error: "No se encontró el enlace en el catálogo" };
+
+        console.log(`🖱️ [EXTRACTOR] Clic enviado. Esperando ventana de compra...`);
+
+        // 2. Capturar la nueva pestaña que abre la web
+        const nuevoTarget = await browser.waitForTarget(t => t.opener() === pagePrincipal.target(), { timeout: 10000 });
+        const pagePopup = await nuevoTarget.page();
+
+        if (pagePopup) {
+            // 3. Capturar el segundo botón .buyBtn (según tu descubrimiento)
+            await pagePopup.waitForSelector('a.buyBtn', { timeout: 8000 });
+            
+            urlDirecta = await pagePopup.evaluate(() => {
+                const btns = Array.from(document.querySelectorAll('a.buyBtn'));
+                // Retornamos el segundo botón si existe, sino el primero
+                return btns.length >= 2 ? btns[1].href : (btns[0] ? btns[0].href : null);
+            });
+            
+            console.log(urlDirecta ? `✅ [EXTRACTOR] URL capturada: ${urlDirecta.substring(0, 40)}...` : "❌ [EXTRACTOR] No se halló el link en los botones");
         }
-    } catch (e) { 
-        resultados.m3 = "Error/Timeout";
-        await pagePrincipal.goto(urlOriginal, { waitUntil: 'domcontentloaded' }).catch(() => {});
+
+    } catch (e) {
+        console.log(`🛑 [EXTRACTOR ERROR] ${e.message}`);
+    } finally {
+        // 4. Limpieza agresiva de memoria
+        const pages = await browser.pages();
+        for (const p of pages) {
+            if (p !== pagePrincipal) await p.close().catch(() => {});
+        }
     }
 
-    console.log(`📊 [RESULTADOS] M1: ${resultados.m1} | M2: ${resultados.m2} | M3: ${resultados.m3}`);
-    
-    if (resultados.m3.startsWith('http')) return { url: resultados.m3, metodo: "In-Situ" };
-    
-    return { error: `Fallo total. M1:${resultados.m1} M2:${resultados.m2} M3:${resultados.m3}` };
+    return urlDirecta ? { url: urlDirecta, metodo: "PopUp-Directo" } : { error: "Fallo en extracción" };
 }
 
 module.exports = { extraerLinkCompra };
