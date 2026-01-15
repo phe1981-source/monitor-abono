@@ -1,17 +1,16 @@
 /**
- * extractor.js - Versión Sniper Pro
- * Especializado en detección de modales y filtrado de enlaces reales
+ * extractor.js - Versión Verbose Pro
+ * Enfocado en transparencia total y filtrado de IDs de compra reales.
  */
 
 async function extraerLinkCompra(browser, page, frame, nombreEvento) {
-    console.log(`\n--- 🎯 OBJETIVO DETECTADO: ${nombreEvento} ---`);
+    const inicioReloj = Date.now();
+    console.log(`\n[EXTRACTOR] 🎯 >>> OBJETIVO: "${nombreEvento}"`);
     
     try {
-        // 1. LOCALIZAR Y ABRIR EL MODAL (VENTANA EMERGENTE)
-        // Buscamos en el listado principal el título o la imagen para hacer clic
+        // 1. Localización del elemento
         const targetElement = await frame.evaluateHandle((nombre) => {
             const elementos = Array.from(document.querySelectorAll('a, h3, .tribe-events-list-event-title, img'));
-            // Buscamos coincidencia por texto o por el atributo 'alt' de las imágenes
             return elementos.find(el => 
                 (el.innerText && el.innerText.trim().toLowerCase().includes(nombre.toLowerCase())) || 
                 (el.alt && el.alt.toLowerCase().includes(nombre.toLowerCase()))
@@ -19,58 +18,46 @@ async function extraerLinkCompra(browser, page, frame, nombreEvento) {
         }, nombreEvento);
 
         if (!targetElement || !targetElement.asElement()) {
-            console.log(`❌ No se encontró el elemento visual para abrir el modal.`);
+            console.log(`[EXTRACTOR] ❌ Error: No se encontró el nombre o imagen en el listado.`);
             return null;
         }
 
-        console.log(`🖱️ Abriendo ventana emergente (Modal)...`);
-        // Forzamos el clic vía JavaScript para evitar bloqueos de elementos superpuestos
+        // 2. Acción de Click
+        console.log(`[EXTRACTOR] 🖱️ Haciendo clic para abrir Modal...`);
         await frame.evaluate(el => el.click(), targetElement);
 
-        // 2. ESPERAR CARGA DEL CONTENIDO INTERNO
-        // Damos 4 segundos para que el servidor cargue las fechas y botones dentro del modal
+        // 3. Espera de carga con log de tiempo
+        console.log(`[EXTRACTOR] ⏳ Esperando 4s para renderizado de botones internos...`);
         await new Promise(r => setTimeout(r, 4000));
 
-        // 3. EXTRAER EL PRIMER ENLACE DE COMPRA REAL
+        // 4. Extracción lógica
         const resultado = await frame.evaluate(() => {
-            // Buscamos todos los enlaces que lleven a la ruta de compra
-            const todosLosLinks = Array.from(document.querySelectorAll('a[href*="compra"]'));
-            
-            // FILTRO CRÍTICO: Buscamos el primero que tenga el ID de evento real (eventocurrence)
-            // Esto ignora automáticamente los botones estéticos que llevan a "#compradias"
-            const linkReal = todosLosLinks.find(a => a.href.includes('eventocurrence='));
+            const links = Array.from(document.querySelectorAll('a[href*="compra"]'));
+            // Buscamos el ID real: eventocurrence
+            const real = links.find(a => a.href.includes('eventocurrence='));
 
-            if (linkReal) {
-                return { url: linkReal.href, encontrado: true, tipo: 'Directo' };
+            if (real) {
+                return { url: real.href, tipo: 'PATA NEGRA (Directo)', exito: true };
             }
-            
-            // PLAN B: Si no hay link con ID, buscamos cualquier botón de "COMPRAR" visible
-            // que no sea una simple ancla (#)
-            const botones = Array.from(document.querySelectorAll('.buyBtn, .button, a, button'));
-            const btnAlternativo = botones.find(b => 
-                b.innerText && b.innerText.toUpperCase().includes('COMPRAR') && 
-                !b.href?.includes('#') &&
-                b.offsetHeight > 0 // Solo botones visibles
+
+            // Fallback si no hay ID pero hay botón de compra
+            const btn = Array.from(document.querySelectorAll('.buyBtn, .button, a, button')).find(b => 
+                b.innerText?.toUpperCase().includes('COMPRAR') && !b.href?.includes('#')
             );
 
-            if (btnAlternativo) {
-                return { url: btnAlternativo.href || window.location.href, encontrado: true, tipo: 'Ficha' };
-            }
-
-            return { url: window.location.href, encontrado: false, tipo: 'Página Actual' };
+            if (btn) return { url: btn.href || window.location.href, tipo: 'Botón Estándar', exito: true };
+            
+            return { url: window.location.href, tipo: 'URL de Ficha (No se halló botón)', exito: false };
         });
 
-        // Verificación final de seguridad para evitar URLs vacías
-        const urlFinal = (resultado.url && resultado.url !== "about:blank") ? resultado.url : await frame.url();
-        
-        console.log(`✅ ¡ENLACE CAPTURADO!: ${urlFinal}`);
-        return { 
-            url: urlFinal, 
-            metodo: resultado.tipo 
-        };
+        const finReloj = Date.now();
+        console.log(`[EXTRACTOR] ✅ Hallazgo (${resultado.tipo}): ${resultado.url}`);
+        console.log(`[EXTRACTOR] ⏱️ Tiempo de extracción: ${finReloj - inicioReloj}ms`);
+
+        return { url: resultado.url, metodo: resultado.tipo };
 
     } catch (error) {
-        console.error(`🔥 [ERROR EXTRACTOR]: ${error.message}`);
+        console.error(`[EXTRACTOR] 🔥 CRÍTICO en "${nombreEvento}": ${error.message}`);
         return null;
     }
 }
