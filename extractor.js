@@ -1,69 +1,52 @@
 async function extraerLinkCompra(browser, page, frame, nombreEvento) {
-    console.log(`\n--- 🛠️ INICIANDO EXTRACCIÓN: ${nombreEvento} ---`);
+    console.log(`\n--- 🎯 OBJETIVO DETECTADO: ${nombreEvento} ---`);
     
     try {
-        // 1. Intentar localizar el enlace en TODOS los frames disponibles
-        const allFrames = page.frames();
-        console.log(`📦 Frames detectados: ${allFrames.length}`);
+        // 1. Buscar el elemento en el listado principal para abrir el Pop-up
+        const targetElement = await frame.evaluateHandle((nombre) => {
+            // Buscamos cualquier enlace o título que contenga el nombre
+            const elementos = Array.from(document.querySelectorAll('a, h3, .tribe-events-list-event-title'));
+            return elementos.find(el => el.innerText.trim().toLowerCase().includes(nombre.toLowerCase()));
+        }, nombreEvento);
 
-        let targetElement = null;
-        let activeFrame = frame;
-
-        // Buscamos el texto en el frame principal y secundarios
-        for (const f of allFrames) {
-            const found = await f.evaluateHandle((nombre) => {
-                const anchors = Array.from(document.querySelectorAll('a, button, span'));
-                return anchors.find(el => el.innerText.trim().toLowerCase().includes(nombre.toLowerCase()));
-            }, nombreEvento);
-
-            if (found.asElement()) {
-                targetElement = found;
-                activeFrame = f;
-                console.log(`🎯 Texto encontrado en frame: ${f.url().substring(0, 40)}...`);
-                break;
-            }
-        }
-
-        if (!targetElement) {
-            console.log(`❌ No se encontró el elemento visual para: ${nombreEvento}`);
+        if (!targetElement.asElement()) {
+            console.log(`❌ No se encontró el evento en la lista.`);
             return null;
         }
 
-        // 2. Click con scroll previo
-        console.log(`🖱️ Ejecutando scroll y click...`);
-        await activeFrame.evaluate(el => el.scrollIntoView(), targetElement);
-        await targetElement.click();
+        // 2. Hacer clic para abrir el Pop-up (usamos click nativo del navegador para evitar bloqueos)
+        console.log(`🖱️ Abriendo ventana emergente...`);
+        await frame.evaluate(el => el.click(), targetElement);
 
-        // 3. Detectar si se ha abierto una pestaña nueva o si el frame cambió
-        console.log(`⏳ Esperando respuesta del servidor (5s)...`);
-        await new Promise(r => setTimeout(r, 5000));
+        // 3. Esperar a que el Pop-up/Modal aparezca y se cargue el botón de COMPRAR
+        console.log(`⏳ Esperando a que cargue el botón de compra en el modal...`);
+        await new Promise(r => setTimeout(r, 3000)); // Pausa necesaria para la animación del modal
 
-        // 4. Buscar el botón final de "COMPRAR" o "RESERVAR"
-        const linkFinal = await activeFrame.evaluate(() => {
-            const selectores = [
-                '.buyBtn', '.button-buy', '#btn_comprar', 
-                'a[href*="pasarela"]', 'input[type="submit"]',
-                '.tribe-events-button'
-            ];
-            
-            for (let sel of selectores) {
-                const btn = document.querySelector(sel);
-                if (btn) return btn.href || window.location.href;
+        // 4. Buscar el botón "COMPRAR" dentro de la ventana sobresaliente
+        const resultado = await frame.evaluate(() => {
+            // Buscamos el botón de comprar que esté visible ahora mismo (el del modal)
+            const botones = Array.from(document.querySelectorAll('.buyBtn, .button, a'));
+            const btnComprar = botones.find(b => 
+                b.innerText.toUpperCase().includes('COMPRAR') && 
+                b.offsetHeight > 0 // Asegura que el botón es visible en el pop-up
+            );
+
+            if (btnComprar) {
+                return { url: btnComprar.href, encontrado: true };
             }
-            return null;
+            return { url: window.location.href, encontrado: false };
         });
 
-        if (linkFinal) {
-            console.log(`✅ ÉXITO: Link capturado: ${linkFinal}`);
-            return { url: linkFinal, metodo: 'Auto' };
+        if (resultado.encontrado) {
+            console.log(`✅ ¡ENLACE CAPTURADO!: ${resultado.url}`);
+            return { url: resultado.url, metodo: 'Modal-Directo' };
         } else {
-            console.log(`⚠️ Llegamos a la ficha pero el botón de compra no es estándar.`);
-            const currentUrl = await activeFrame.url();
-            return { url: currentUrl, metodo: 'Manual' };
+            console.log(`⚠️ Modal abierto, pero no se extrajo link directo. Usando URL de ficha.`);
+            return { url: resultado.url, metodo: 'Modal-Ficha' };
         }
 
     } catch (error) {
-        console.error(`🔥 ERROR en extractor: ${error.message}`);
+        console.error(`🔥 ERROR en la extracción: ${error.message}`);
         return null;
     }
 }
