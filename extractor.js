@@ -1,14 +1,14 @@
 /**
- * extractor.js - Versión Verbose Pro V3.5
- * Corregido para buscar links de compra fuera del iframe (en el modal).
+ * extractor.js - Versión Profesional Modular V3.7
+ * Específicamente diseñado para evitar links "fake" y gestionar memoria en Render.
  */
 
 async function extraerLinkCompra(browser, page, frame, nombreEvento) {
     const inicioReloj = Date.now();
-    console.log(`\n[EXTRACTOR] 🎯 >>> OBJETIVO: "${nombreEvento}"`);
+    console.log(`\n[EXTRACTOR] 🎯 Buscando link real para: "${nombreEvento}"`);
     
     try {
-        // 1. Localización del elemento dentro del iframe
+        // PASO 1: Localización y Apertura del Modal
         const targetElement = await frame.evaluateHandle((nombre) => {
             const elementos = Array.from(document.querySelectorAll('a, h3, .tribe-events-list-event-title, img'));
             return elementos.find(el => 
@@ -18,53 +18,63 @@ async function extraerLinkCompra(browser, page, frame, nombreEvento) {
         }, nombreEvento);
 
         if (!targetElement || !targetElement.asElement()) {
-            console.log(`[EXTRACTOR] ❌ Error: No se encontró el nombre en el listado.`);
-            return { url: 'https://compras.abonoteatro.com/teatro/', metodo: 'Respaldo' };
+            throw new Error("No se encontró el evento en el listado del iframe.");
         }
 
-        // 2. Acción de Click
-        console.log(`[EXTRACTOR] 🖱️ Abriendo Modal...`);
+        console.log(`[EXTRACTOR] 🖱️ Click en evento para abrir modal...`);
         await frame.evaluate(el => el.click(), targetElement);
 
-        // 3. Espera de carga (El modal se abre en la "page", no en el "frame")
-        console.log(`[EXTRACTOR] ⏳ Esperando renderizado en página principal...`);
-        // Esperamos a que aparezca cualquier link de compra con ID real
-        await page.waitForSelector('a[href*="eventocurrence"]', { timeout: 6000 }).catch(() => {});
+        // PASO 2: Extracción Selectiva del Link "Pata Negra"
+        // Esperamos un momento a que el modal se renderice en la página principal
+        await page.waitForSelector('a[href*="eventocurrence"]', { timeout: 5000 }).catch(() => {});
 
-        // 4. Extracción lógica en la PÁGINA PRINCIPAL
         const resultado = await page.evaluate(() => {
-            const links = Array.from(document.querySelectorAll('a[href*="compra"]'));
+            const links = Array.from(document.querySelectorAll('a'));
             
-            // FILTRO PATA NEGRA: Buscamos el ID real: eventocurrence
-            // Ignoramos los que terminan en #compradias (el "fake" de tu imagen)
-            const real = links.find(a => a.href.includes('eventocurrence=') && !a.href.includes('#'));
-
-            if (real) {
-                return { url: real.href, tipo: 'PATA NEGRA (Directo)', exito: true };
-            }
-
-            // Fallback: Si no hay link de sesión, buscamos cualquier botón de compra que no sea el fake
-            const btn = Array.from(document.querySelectorAll('.buyBtn, .button, a, button')).find(b => 
-                b.innerText?.toUpperCase().includes('COMPRAR') && !b.href?.includes('#')
+            // Filtramos links que contengan 'eventocurrence' y descartamos los que tengan '#'
+            const reales = links.filter(a => 
+                a.href.includes('eventocurrence=') && 
+                !a.href.includes('#')
             );
 
-            if (btn && btn.href) return { url: btn.href, tipo: 'Botón Estándar', exito: true };
+            if (reales.length > 0) {
+                return { 
+                    url: reales[0].href, 
+                    tipo: 'PATA NEGRA (Directo)', 
+                    exito: true 
+                };
+            }
             
-            return { url: 'https://compras.abonoteatro.com/teatro/', tipo: 'Respaldo (General)', exito: false };
+            return { url: null, exito: false };
         });
 
-        // 5. Limpieza: Cerramos el modal para no estorbar en el siguiente ciclo
-        await page.keyboard.press('Escape');
-
-        const finReloj = Date.now();
-        console.log(`[EXTRACTOR] ✅ Hallazgo (${resultado.tipo}): ${resultado.url}`);
-        console.log(`[EXTRACTOR] ⏱️ Tiempo: ${finReloj - inicioReloj}ms`);
-
-        return { url: resultado.url, metodo: resultado.tipo };
+        if (resultado.exito) {
+            console.log(`[EXTRACTOR] ✅ Link obtenido: ${resultado.url}`);
+            return { url: resultado.url, metodo: resultado.tipo, exito: true };
+        } else {
+            throw new Error("Modal abierto pero no se encontró link con 'eventocurrence'.");
+        }
 
     } catch (error) {
-        console.error(`[EXTRACTOR] 🔥 CRÍTICO en "${nombreEvento}": ${error.message}`);
-        return { url: 'https://compras.abonoteatro.com/teatro/', metodo: 'Error Fallback' };
+        // PASO 3: Manejo de Errores y Retorno Genérico
+        console.error(`[EXTRACTOR] ⚠️ Error en extracción: ${error.message}`);
+        console.log(`[EXTRACTOR] 🔄 Retornando link de respaldo (Cartelera General).`);
+        return { 
+            url: 'https://compras.abonoteatro.com/teatro/', 
+            metodo: 'Respaldo (General)', 
+            exito: false 
+        };
+
+    } finally {
+        // PASO 4: Limpieza de Memoria y Cierre de Modal (Crucial para Render)
+        try {
+            await page.keyboard.press('Escape'); // Cerramos el pop-up
+            await new Promise(r => setTimeout(r, 500)); // Breve pausa para estabilidad
+            const finReloj = Date.now();
+            console.log(`[EXTRACTOR] 🧹 Limpieza finalizada. Tiempo total: ${finReloj - inicioReloj}ms`);
+        } catch (e) {
+            console.log(`[EXTRACTOR] Error menor en limpieza: ${e.message}`);
+        }
     }
 }
 
