@@ -83,27 +83,42 @@ async function iniciarMonitor() {
             const anteriorNombres = listaLimpia.map(item => item.nombre);
             const detectadosAhora = nombresActuales.filter(n => !anteriorNombres.includes(n));
 
-            if (detectadosAhora.length > 0) {
-              console.log(`🔔 [ALERTA] Se han detectado ${detectadosAhora.length} novedades!`);
-              
-              // 1. REGISTRO INMEDIATO PARA ALARMA VISUAL/SONORA
-              historialNovedades.forEach(h => h.nuevo = false);
-              for (const nombre of detectadosAhora) {
-                historialNovedades.unshift({ nombre, hora: ahoraHora, nuevo: true });
-              }
+           if (detectadosAhora.length > 0) {
+    console.log(`🔔 [ALERTA] Se han detectado ${detectadosAhora.length} novedades!`);
+    
+    // 1. PRIORIDAD ABSOLUTA: Alarma visual y sonora
+    historialNovedades.forEach(h => h.nuevo = false);
+    for (const nombre of detectadosAhora) {
+        historialNovedades.unshift({ nombre, hora: ahoraHora, nuevo: true });
+    }
 
-              // 2. EXTRACCIÓN DE LINKS (Llamada al módulo externo)
-              for (const nombre of detectadosAhora) {
-                const resultado = await extraerLinkCompra(browser, page, frame, nombre);
-                
-                if (resultado.url) {
-                  console.log(`✅ [SUCCESS] Link capturado para ${nombre}`);
-                  linksDirectos.unshift({ nombre, url: resultado.url, hora: ahoraHora });
-                } else {
-                  console.log(`🛑 [DETALLE] ${nombre}: ${resultado.error}`);
-                }
-              }
+    // 2. EXTRACCIÓN (Con límite de tiempo total para no bloquear el loop)
+    for (const nombre of detectadosAhora) {
+        // Creamos una promesa que "muere" a los 30 segundos pase lo que pase
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('TIMEOUT_GLOBAL_EXTRACTOR')), 30000)
+        );
+
+        try {
+            console.log(`⏱️ [LOOP] Iniciando extracción segura para: ${nombre}`);
+            // Competimos entre el extractor y el timeout de 30s
+            const resultado = await Promise.race([
+                extraerLinkCompra(browser, page, frame, nombre),
+                timeoutPromise
+            ]);
+
+            if (resultado && resultado.url) {
+                console.log(`✅ [LOOP] Link recibido.`);
+                linksDirectos.unshift({ nombre, url: resultado.url, hora: ahoraHora });
             }
+        } catch (err) {
+            console.log(`⚠️ [LOOP] El extractor tardó demasiado o falló para "${nombre}". Continuando loop principal...`);
+            // Forzamos cierre de páginas por si acaso quedó algo abierto
+            const pages = await browser.pages();
+            for (let i = 1; i < pages.length; i++) { await pages[i].close().catch(()=>{}); }
+        }
+    }
+}
             listaLimpia = nombresActuales.map(n => ({ nombre: n }));
             ultimaActualizacion = ahoraHora;
           }
@@ -188,12 +203,30 @@ app.get('/', (req, res) => {
   `);
 });
 
-// RUTA TEST
+// RUTA TEST FORZADO - VISITA GRAN CASTILLO DE PEDRAZA
 app.get('/test-alarma', (req, res) => {
-    if (listaLimpia.length > 0) {
-        const eliminado = listaLimpia.shift();
-        res.send(`<h3>Simulacro Activado</h3><p>Se ha borrado: <b>${eliminado.nombre}</b>.</p>`);
-    } else { res.send("Espera al primer escaneo."); }
+    const nombreObjetivo = "VISITA GRAN CASTILLO DE PEDRAZA";
+    const indice = listaLimpia.findIndex(e => e.nombre.includes(nombreObjetivo));
+
+    if (indice !== -1) {
+        const eliminado = listaLimpia.splice(indice, 1);
+        res.send(`
+            <div style="background:#000; color:#00ff00; padding:20px; font-family:monospace;">
+                <h3>🎯 Simulacro Específico Activado</h3>
+                <p>Se ha borrado de la memoria: <b>${eliminado[0].nombre}</b></p>
+                <p>En el próximo escaneo (3-4 min), el bot lo detectará como NOVEDAD y lanzará el <b>extractor.js</b>.</p>
+                <p>Vigila los logs de Render para ver el rastro de [EXTRACTOR].</p>
+            </div>
+        `);
+    } else {
+        res.send(`
+            <div style="background:#000; color:#ff4400; padding:20px; font-family:monospace;">
+                <h3>⚠️ Error en Simulacro</h3>
+                <p>No se encontró "${nombreObjetivo}" en la lista actual de ${listaLimpia.length} eventos.</p>
+                <p>Asegúrate de que el primer escaneo haya terminado.</p>
+            </div>
+        `);
+    }
 });
 
 const PORT = process.env.PORT || 10000;
