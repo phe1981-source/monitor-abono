@@ -1,74 +1,70 @@
-/**
- * extractor.js - Versión 5.1 (Force Click + Network Interception + Stability)
- */
-async function extraerLinkCompra(browser, pagePrincipal, frame, nombreEvento) {
-    console.log(`📡 [SNIPER V5.1] Acechando: "${nombreEvento}"`);
-    let urlFinal = null;
-
+async function extraerLinkCompra(browser, page, frame, nombreEvento) {
+    console.log(`\n--- 🛠️ INICIANDO EXTRACCIÓN: ${nombreEvento} ---`);
+    
     try {
-        // 1. Escucha de red inteligente
-        const capturador = new Promise((resolve) => {
-            const listener = (request) => {
-                const url = request.url();
-                // Capturamos cualquier URL que sea de compra, pasarela o sesión
-                if (url.includes('id_evento=') || 
-                    url.includes('id_sesion=') || 
-                    url.includes('pasarela') || 
-                    url.includes('tpv')) {
-                    resolve(url);
-                }
-            };
-            pagePrincipal.on('request', listener);
-            // 15 segundos de paciencia para Render
-            setTimeout(() => resolve(null), 15000);
+        // 1. Intentar localizar el enlace en TODOS los frames disponibles
+        const allFrames = page.frames();
+        console.log(`📦 Frames detectados: ${allFrames.length}`);
+
+        let targetElement = null;
+        let activeFrame = frame;
+
+        // Buscamos el texto en el frame principal y secundarios
+        for (const f of allFrames) {
+            const found = await f.evaluateHandle((nombre) => {
+                const anchors = Array.from(document.querySelectorAll('a, button, span'));
+                return anchors.find(el => el.innerText.trim().toLowerCase().includes(nombre.toLowerCase()));
+            }, nombreEvento);
+
+            if (found.asElement()) {
+                targetElement = found;
+                activeFrame = f;
+                console.log(`🎯 Texto encontrado en frame: ${f.url().substring(0, 40)}...`);
+                break;
+            }
+        }
+
+        if (!targetElement) {
+            console.log(`❌ No se encontró el elemento visual para: ${nombreEvento}`);
+            return null;
+        }
+
+        // 2. Click con scroll previo
+        console.log(`🖱️ Ejecutando scroll y click...`);
+        await activeFrame.evaluate(el => el.scrollIntoView(), targetElement);
+        await targetElement.click();
+
+        // 3. Detectar si se ha abierto una pestaña nueva o si el frame cambió
+        console.log(`⏳ Esperando respuesta del servidor (5s)...`);
+        await new Promise(r => setTimeout(r, 5000));
+
+        // 4. Buscar el botón final de "COMPRAR" o "RESERVAR"
+        const linkFinal = await activeFrame.evaluate(() => {
+            const selectores = [
+                '.buyBtn', '.button-buy', '#btn_comprar', 
+                'a[href*="pasarela"]', 'input[type="submit"]',
+                '.tribe-events-button'
+            ];
+            
+            for (let sel of selectores) {
+                const btn = document.querySelector(sel);
+                if (btn) return btn.href || window.location.href;
+            }
+            return null;
         });
 
-        // 2. CLIC DE FUERZA BRUTA (Mejorado)
-        await frame.evaluate((n) => {
-            const el = Array.from(document.querySelectorAll('a'))
-                            .find(a => a.innerText.trim().toLowerCase().includes(n.toLowerCase()));
-            if (el) {
-                el.scrollIntoView();
-                
-                // Método A: Clic estándar
-                el.click();
-                
-                // Método B: Evento de ratón real (para saltar bloqueos de bots)
-                const opts = { bubbles: true, cancelable: true, view: window };
-                el.dispatchEvent(new MouseEvent('mousedown', opts));
-                el.dispatchEvent(new MouseEvent('mouseup', opts));
-                el.dispatchEvent(new MouseEvent('click', opts));
-                
-                // Método C: Si tiene un link real, lo abrimos en pestaña nueva para no romper el bot
-                if(el.href && el.href !== '#' && !el.href.startsWith('javascript')) {
-                    window.open(el.href, '_blank');
-                }
-                return true;
-            }
-            return false;
-        }, nombreEvento);
-
-        console.log(`🖱️ [SNIPER V5.1] Clics múltiples enviados. Esperando tráfico...`);
-
-        // 3. Resultado de la intercepción
-        urlFinal = await capturador;
-        pagePrincipal.removeAllListeners('request');
-
-    } catch (e) {
-        console.log(`🛑 [SNIPER V5.1 ERROR] ${e.message}`);
-    } finally {
-        // LIMPIEZA: Cerramos cualquier basura/pop-up que los 3 clics hayan abierto
-        const pages = await browser.pages();
-        for (let i = 0; i < pages.length; i++) {
-            if (pages[i] !== pagePrincipal) await pages[i].close().catch(() => {});
+        if (linkFinal) {
+            console.log(`✅ ÉXITO: Link capturado: ${linkFinal}`);
+            return { url: linkFinal, metodo: 'Auto' };
+        } else {
+            console.log(`⚠️ Llegamos a la ficha pero el botón de compra no es estándar.`);
+            const currentUrl = await activeFrame.url();
+            return { url: currentUrl, metodo: 'Manual' };
         }
-    }
 
-    if (urlFinal) {
-        console.log(`🎯 [SNIPER V5.1] ¡URL CAPTURADA!: ${urlFinal.substring(0, 70)}...`);
-        return { url: urlFinal, metodo: "Force-Sniper-V5.1" };
-    } else {
-        return { error: "Sin tráfico tras clics de fuerza bruta" };
+    } catch (error) {
+        console.error(`🔥 ERROR en extractor: ${error.message}`);
+        return null;
     }
 }
 
