@@ -72,12 +72,26 @@ async function iniciarMonitor() {
 
 app.get('/', (req, res) => res.send(generarHTML(linksDirectos, totalEventosCartelera, ultimaActualizacion, horaProximaReal)));
 app.get('/test-alarma', (req, res) => {
-    linksDirectos.unshift({ nombre: "Simulacro OK", hora: new Date().toLocaleTimeString(), nuevo: true, url: '#' });
-    res.send("OK");
+    if (listaLimpia.length > 0) {
+        // 1. Elegimos un evento real de la lista actual (el primero, por ejemplo)
+        const eventoParaSimular = listaLimpia[0];
+        
+        // 2. Lo eliminamos de la memoria "listaLimpia"
+        // Al quitarlo, en el próximo ciclo de escaneo el sistema dirá: "¡Eh, este es nuevo!"
+        listaLimpia = listaLimpia.filter(nombre => nombre !== eventoParaSimular);
+        
+        console.log(`🧪 [SIMULACRO] Se ha eliminado "${eventoParaSimular}" de la memoria.`);
+        console.log(`🚀 El monitor lo detectará como NUEVO en el próximo ciclo y usará el extractor.`);
+        
+        res.send(`Simulacro iniciado: Se ha "olvidado" el evento: ${eventoParaSimular}. Espera al próximo ciclo de escaneo.`);
+    } else {
+        res.send("Error: La cartelera aún está vacía. Espera a que el monitor cargue los datos.");
+    }
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 Servidor en puerto ${PORT}`);
     iniciarMonitor();
+
 });
