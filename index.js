@@ -4,8 +4,11 @@ const express = require('express');
 const { realizarLogin } = require('./auth');
 const { generarHTML } = require('./interfaz');
 const { extraerLinkCompra } = require('./extractor');
+const { setupKeepAlive } = require('./keep-alive');
+const { enviarNotificacion } = require('./notificaciones');
 
 const app = express();
+setupKeepAlive(app);
 let listaLimpia = []; 
 let linksDirectos = []; 
 let totalEventosCartelera = 0;
@@ -51,7 +54,10 @@ async function iniciarMonitor() {
                     linksDirectos.unshift(item);
                     try {
                         const linkInfo = await extraerLinkCompra(browser, page, frame, nombre);
-                        if (linkInfo.exito) item.url = linkInfo.url;
+                        if (linkInfo.exito) {
+                            item.url = linkInfo.url;
+                            await enviarNotificacion(`🎯 <b>¡NUEVO EVENTO DETECTADO!</b>\n\n<b>Evento:</b> ${nombre}\n<b>Link:</b> <a href="${linkInfo.url}">Comprar aquí</a>`);
+                        }
                     } catch (err) { console.log(`❌ Error extractor: ${nombre}`); }
                 }
             }
