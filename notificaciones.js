@@ -11,7 +11,8 @@ async function enviarNotificacion(mensaje) {
     }
 
     const encodedMensaje = encodeURIComponent(mensaje);
-    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodedMensaje}&parse_mode=HTML`;
+    // PUNTO 5: Formato ultra-directo sin parse_mode complejo para máxima compatibilidad
+    const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodedMensaje}`;
 
     return new Promise((resolve) => {
         https.get(url, (res) => {
