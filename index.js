@@ -91,8 +91,8 @@ async function iniciarMonitor() {
             
             listaLimpia = [...nombresActuales];
 
-            // 6. Invisibilidad (Antiban): Espera aleatoria de 60-120 segundos
-            const espera = Math.floor(Math.random() * (120 - 60 + 1) + 60);
+// 6. Invisibilidad (Antiban): Espera aleatoria de 60-180 segundos (1 a 3 min)
+            const espera = Math.floor(Math.random() * (180 - 60 + 1) + 60);
             console.log(`⏱️ Próximo escaneo en ${espera} segundos.`);
             await new Promise(r => setTimeout(r, espera * 1000));
         }
