@@ -1,26 +1,26 @@
 const express = require('express');
 const axios = require('axios');
-const { realizarLoginYExtraerCookies } = require('./auth'); // Importamos la nueva función
+const { realizarLoginYExtraerCookies } = require('./auth');
 const { extraerLinkCompra } = require('./extractor');
 const { enviarNotificacion } = require('./notificaciones');
 
 const app = express();
 let listaLimpia = []; 
-let sessionCookie = ""; // Variable para guardar la sesión
+let sessionCookie = "";
 
 app.get('/', (req, res) => res.send('OK'));
 
 async function iniciarMonitor() {
-    console.log("🚀 [SISTEMA] Monitor V5.0 (API + Auth Mode) Iniciado");
+    console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
-    // Realizamos el login una sola vez al arrancar
+    // Login inicial
     try {
         sessionCookie = await realizarLoginYExtraerCookies();
         console.log("🍪 [AUTH] Cookie de sesión obtenida.");
     } catch (err) {
         console.error("❌ [AUTH] Fallo al iniciar sesión:", err.message);
-        return; // Detenemos si no hay sesión
+        process.exit(1); 
     }
 
     while (true) {
@@ -32,7 +32,6 @@ async function iniciarMonitor() {
         } else {
             console.log(`📡 [SCAN] --- CICLO API: ${ahoraES.toLocaleTimeString()} ---`);
             try {
-                // LLAMADA A LA API CON LA COOKIE
                 const response = await axios.get("https://api.abonoteatro.com/api/web/events?page=1&itemsPerPage=50", {
                     headers: { 
                         'Cookie': sessionCookie,
@@ -47,7 +46,6 @@ async function iniciarMonitor() {
                     const detectadosAhora = nombresActuales.filter(n => !listaLimpia.includes(n));
                     for (const nombre of detectadosAhora) {
                         try {
-                            // Pasamos la cookie también al extractor si este usa axios internamente
                             const linkInfo = await extraerLinkCompra(nombre, sessionCookie);
                             await enviarNotificacion(linkInfo.mensajeFormateado);
                         } catch (err) {
@@ -58,9 +56,12 @@ async function iniciarMonitor() {
                 listaLimpia = [...nombresActuales];
 
             } catch (err) {
-                console.log("⚠️ Error en ciclo API (quizás sesión caducada):", err.message);
-                // Opcional: si da error 401/403, forzar un nuevo login:
-                // sessionCookie = await realizarLoginYExtraerCookies();
+                console.log("⚠️ Error en ciclo API:", err.message);
+                // Si la sesión caduca (401), re-autenticamos
+                if (err.response && (err.response.status === 401 || err.response.status === 403)) {
+                    console.log("🔄 Sesión caducada, re-autenticando...");
+                    sessionCookie = await realizarLoginYExtraerCookies();
+                }
             }
         }
 
@@ -69,4 +70,23 @@ async function iniciarMonitor() {
     }
 }
 
-// Asegúrate de tener programarReinicio() y app.listen() definidos abajo...
+function programarReinicio() {
+    const calcularMs = () => {
+        const ahora = new Date();
+        const ahoraES = new Date(ahora.toLocaleString("en-US", {timeZone: "Europe/Madrid"}));
+        let target = new Date(ahoraES);
+        target.setHours(6, 0, 0, 0);
+        if (ahoraES >= target) target.setDate(target.getDate() + 1);
+        return target - ahoraES;
+    };
+    setTimeout(() => {
+        console.log("🕒 [SISTEMA] Reinicio preventivo (06:00 AM).");
+        process.exit(0);
+    }, calcularMs());
+}
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
+    iniciarMonitor();
+    programarReinicio();
+});
