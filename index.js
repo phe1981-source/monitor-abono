@@ -21,8 +21,41 @@ const API_HEADERS = () => ({
     'x-user-type': 'SUBSCRIBER'
 });
 
+// FUNCIÓN DE PAGINACIÓN: Obtiene todo el catálogo
+async function obtenerTodosLosEventos() {
+    let todosLosEventos = [];
+    let pagina = 1;
+    let continuar = true;
+
+    while (continuar) {
+        try {
+            const response = await axios.get(
+                `https://api.abonoteatro.com/api/web/events?page=${pagina}&itemsPerPage=50`,
+                { headers: API_HEADERS() }
+            );
+
+            const items = response.data.items || [];
+            if (items.length > 0) {
+                todosLosEventos = [...todosLosEventos, ...items];
+                // Si la API nos da 50 items, asumimos que hay otra página
+                if (items.length === 50) {
+                    pagina++;
+                } else {
+                    continuar = false;
+                }
+            } else {
+                continuar = false;
+            }
+        } catch (err) {
+            console.error(`❌ Error en paginación (pág ${pagina}):`, err.message);
+            throw err; // Propaga el error para que el ciclo principal lo maneje
+        }
+    }
+    return todosLosEventos;
+}
+
 async function iniciarMonitor() {
-    console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
+    console.log("🚀 [SISTEMA] Monitor V5.0 (Paginado) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
     try {
@@ -36,19 +69,13 @@ async function iniciarMonitor() {
 
     while (true) {
         const ahoraES = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Madrid"}));
-        const hora = ahoraES.getHours();
-
-        if (hora >= 23 || hora < 6) {
-            console.log(`🌙 [NOCHE] ${ahoraES.toLocaleTimeString()} - Modo reposo.`);
+        
+        if (ahoraES.getHours() >= 23 || ahoraES.getHours() < 6) {
+            console.log(`🌙 [NOCHE] Reposo.`);
         } else {
-            console.log(`📡 [SCAN] --- CICLO API: ${ahoraES.toLocaleTimeString()} ---`);
+            console.log(`📡 [SCAN] --- INICIO DE ESCANEO TOTAL ---`);
             try {
-                const response = await axios.get(
-                    "https://api.abonoteatro.com/api/web/events?page=1&itemsPerPage=50",
-                    { headers: API_HEADERS() }
-                );
-
-                const eventos = response.data.items || [];
+                const eventos = await obtenerTodosLosEventos();
                 const nombresActuales = eventos.map(e => e.name);
 
                 if (listaLimpia.length > 0) {
@@ -63,25 +90,21 @@ async function iniciarMonitor() {
                     }
                 }
                 listaLimpia = [...nombresActuales];
-                console.log(`✅ [SCAN] ${nombresActuales.length} eventos cargados.`);
+                console.log(`✅ [SCAN] ${nombresActuales.length} eventos procesados.`);
 
             } catch (err) {
                 console.log("⚠️ Error en ciclo API:", err.message);
-                if (err.response) {
-                    console.log("⚠️ Status:", err.response.status);
-                    console.log("⚠️ Body:", JSON.stringify(err.response.data));
-                }
                 if (err.response && (err.response.status === 401 || err.response.status === 403)) {
                     console.log("🔄 Token caducado, re-autenticando...");
                     bearerToken = await realizarLoginYExtraerCookies();
                 }
             }
         }
-
-        const espera = Math.floor(Math.random() * (180 - 60 + 1) + 60);
-        await new Promise(r => setTimeout(r, espera * 1000));
+        await new Promise(r => setTimeout(r, 180000)); // Espera 3 min entre escaneos
     }
 }
+
+// ... (El resto de tus funciones programarReinicio y app.listen igual que antes)
 
 function programarReinicio() {
     const calcularMs = () => {
