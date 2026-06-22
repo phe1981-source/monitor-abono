@@ -1,44 +1,34 @@
-// extractor.js - Versión V4.0 (Base Jules + Lógica VIP)
-async function extraerLinkCompra(browser, page, frame, nombreEvento) {
+const axios = require('axios');
+
+async function extraerLinkCompra(nombreEvento, cookieSesion) {
     try {
-        const result = await frame.evaluate((nombre) => {
-            // Selectores ampliados de la V4.0 para no perder nada
-            const selectores = '.tribe-events-list-event-title a, button.buyBtn, h3 a, .tribe-events-calendar-list__event-title a';
-            const elementos = Array.from(document.querySelectorAll(selectores));
-            const objetivo = elementos.find(el => el.innerText.trim().toLowerCase().includes(nombre.toLowerCase()));
-            
-            if (objetivo) {
-                const onclickStr = objetivo.getAttribute('onclick') || "";
-                const match = onclickStr.match(/\d+/);
-                const id = match ? match[0] : null;
-
-                // Búsqueda de teatro ultra-resistente de la V4.0
-                let teatro = "Teatro no especificado";
-                const container = objetivo.closest('.type-tribe_events, .tribe-events-list-event-wrapper, .tribe-events-calendar-list__event-row');
-                if (container) {
-                    const venue = container.querySelector('.tribe-events-venue-details a, .tribe-venue a, .tribe-events-calendar-list__event-venue');
-                    if (venue) teatro = venue.innerText.trim();
-                }
-                return { id, teatro };
+        // Incluimos la cookie en los headers
+        const response = await axios.get("https://api.abonoteatro.com/api/web/events?page=1&itemsPerPage=50", {
+            headers: { 
+                'Cookie': cookieSesion,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
             }
-            return null;
-        }, nombreEvento);
+        });
 
-        if (result && result.id) {
-            // Usamos tu URL preferida que confirmas que funciona
-            const urlFinal = `https://compras.abonoteatro.com/?pagename=espectaculo&eventid=${result.id}`;
+        const evento = response.data.items.find(e => 
+            e.name.toLowerCase().includes(nombreEvento.toLowerCase())
+        );
+
+        if (evento) {
+            const urlFinal = `https://www.abonoteatro.com/evento/${evento.id}`;
+            const teatro = evento.enclosure?.name || "Teatro no especificado";
             
             const teatrosVIP = ["Gran Teatro CaixaBank Príncipe Pío", "IFEMA", "Teatro Pavón"];
-            const esVIP = teatrosVIP.some(t => result.teatro.toUpperCase().includes(t.toUpperCase()));
-            const prefijo = esVIP ? "🎯 " : "";
-
-            const mensajeTelegram = `${prefijo}${nombreEvento}\n🏛️ ${result.teatro}\n🔗 ${urlFinal}`;
+            const esVIP = teatrosVIP.some(t => teatro.toUpperCase().includes(t.toUpperCase()));
             
-            return { url: urlFinal, exito: true, mensajeFormateado: mensajeTelegram };
+            return { 
+                exito: true, 
+                mensajeFormateado: `${esVIP ? "🎯 " : ""}${evento.name}\n🏛️ ${teatro}\n🔗 ${urlFinal}` 
+            };
         }
-        throw new Error("ID no capturado");
+        throw new Error("No encontrado");
     } catch (error) {
-        return { url: 'https://compras.abonoteatro.com/teatro/', exito: false, mensajeFormateado: `${nombreEvento}\n🏛️ Revisa en la web\n🔗 https://compras.abonoteatro.com/teatro/` };
+        return { exito: false, mensajeFormateado: `${nombreEvento}\n🔗 Revisa la web manualmente.` };
     }
 }
 module.exports = { extraerLinkCompra };
