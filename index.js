@@ -5,29 +5,23 @@ const { extraerLinkCompra } = require('./extractor');
 const { enviarNotificacion } = require('./notificaciones');
 
 const app = express();
-let listaLimpia = []; 
+let listaLimpia = [];
 let sessionCookie = "";
 
 app.get('/', (req, res) => res.send('OK'));
 
 async function iniciarMonitor() {
-    console.log("🔍 [SCAN] Cookie enviada:", sessionCookie.substring(0, 80) + "...");
-
     console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
-  // ... dentro de iniciarMonitor
-    // Login inicial
     try {
         sessionCookie = await realizarLoginYExtraerCookies();
         console.log("🍪 [AUTH] Cookie de sesión obtenida.");
     } catch (err) {
         console.error("❌ [AUTH] Fallo al iniciar:", err.message);
-        // CAMBIO: En lugar de matar el bot (exit), esperamos un poco y reintentamos
         await new Promise(r => setTimeout(r, 60000));
-        return iniciarMonitor(); // Reinicia el proceso de login sin matar el proceso
+        return iniciarMonitor();
     }
-// ... resto del código
 
     while (true) {
         const ahoraES = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Madrid"}));
@@ -37,11 +31,13 @@ async function iniciarMonitor() {
             console.log(`🌙 [NOCHE] ${ahoraES.toLocaleTimeString()} - Modo reposo.`);
         } else {
             console.log(`📡 [SCAN] --- CICLO API: ${ahoraES.toLocaleTimeString()} ---`);
+            // ✅ Debug line HERE, just before the API call
+            console.log("🔍 [SCAN] Cookie enviada:", sessionCookie.substring(0, 120) + "...");
             try {
                 const response = await axios.get("https://api.abonoteatro.com/api/web/events?page=1&itemsPerPage=50", {
-                    headers: { 
+                    headers: {
                         'Cookie': sessionCookie,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36' 
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
                     }
                 });
 
@@ -60,9 +56,14 @@ async function iniciarMonitor() {
                     }
                 }
                 listaLimpia = [...nombresActuales];
+                console.log(`✅ [SCAN] ${nombresActuales.length} eventos cargados.`);
 
             } catch (err) {
                 console.log("⚠️ Error en ciclo API:", err.message);
+                if (err.response) {
+                    console.log("⚠️ Status:", err.response.status);
+                    console.log("⚠️ Body:", JSON.stringify(err.response.data));
+                }
                 if (err.response && (err.response.status === 401 || err.response.status === 403)) {
                     console.log("🔄 Sesión caducada, re-autenticando...");
                     sessionCookie = await realizarLoginYExtraerCookies();
