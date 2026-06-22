@@ -63,7 +63,9 @@ async function iniciarMonitor() {
         console.log("🔑 [AUTH] Bearer token obtenido.");
     } catch (err) {
         console.error("❌ [AUTH] Fallo al iniciar:", err.message);
-        await new Promise(r => setTimeout(r, 60000));
+// Genera un número aleatorio entre 60,000 (1 min) y 180,000 (3 min)
+const espera = Math.floor(Math.random() * (180000 - 60000 + 1) + 60000);
+await new Promise(r => setTimeout(r, espera));
         return iniciarMonitor();
     }
 
