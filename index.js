@@ -74,6 +74,7 @@ await new Promise(r => setTimeout(r, espera));
         
         if (ahoraES.getHours() >= 23 || ahoraES.getHours() < 6) {
             console.log(`🌙 [NOCHE] Reposo.`);
+            await new Promise(r => setTimeout(r, 600000)); // Espera 10 min en reposo antes de volver a mirar la hora
         } else {
             console.log(`📡 [SCAN] --- INICIO DE ESCANEO TOTAL ---`);
             const inicio = Date.now();
@@ -82,7 +83,6 @@ await new Promise(r => setTimeout(r, espera));
                 const duracion = ((Date.now() - inicio) / 1000).toFixed(2);
                 const horaActual = new Date().toLocaleTimeString('es-ES', { hour12: false });
 
-                // Log detallado solicitado
                 console.log(`✅ [SCAN] Escaneado a las ${horaActual} | ${eventos.length} eventos procesados en ${duracion}s.`);
 
                 const nombresActuales = eventos.map(e => e.name);
@@ -111,12 +111,17 @@ await new Promise(r => setTimeout(r, espera));
                     bearerToken = await realizarLoginYExtraerCookies();
                 }
             }
-        }
-        await new Promise(r => setTimeout(r, 180000)); // Espera 3 min entre escaneos
-    }
-}
 
-// ... (El resto de tus funciones programarReinicio y app.listen igual que antes)
+            // --- AQUÍ ESTÁ LA MEJORA ---
+            // Genera el tiempo de espera aleatorio (1 a 3 min)
+            const esperaMs = Math.floor(Math.random() * (180000 - 60000 + 1) + 60000);
+            const proximoEscaneo = new Date(Date.now() + esperaMs);
+            const horaProximo = proximoEscaneo.toLocaleTimeString('es-ES', { hour12: false });
+            
+            console.log(`⏱️ Próximo escaneo programado para las ${horaProximo}.`);
+            await new Promise(r => setTimeout(r, esperaMs));
+        }
+    }
 
 function programarReinicio() {
     const calcularMs = () => {
