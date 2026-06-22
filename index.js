@@ -11,6 +11,8 @@ let sessionCookie = "";
 app.get('/', (req, res) => res.send('OK'));
 
 async function iniciarMonitor() {
+    console.log("🔍 [SCAN] Cookie enviada:", sessionCookie.substring(0, 80) + "...");
+
     console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
