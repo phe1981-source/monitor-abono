@@ -74,12 +74,23 @@ async function iniciarMonitor() {
             console.log(`🌙 [NOCHE] Reposo.`);
         } else {
             console.log(`📡 [SCAN] --- INICIO DE ESCANEO TOTAL ---`);
+            const inicio = Date.now();
             try {
                 const eventos = await obtenerTodosLosEventos();
+                const duracion = ((Date.now() - inicio) / 1000).toFixed(2);
+                const horaActual = new Date().toLocaleTimeString('es-ES', { hour12: false });
+
+                // Log detallado solicitado
+                console.log(`✅ [SCAN] Escaneado a las ${horaActual} | ${eventos.length} eventos procesados en ${duracion}s.`);
+
                 const nombresActuales = eventos.map(e => e.name);
 
                 if (listaLimpia.length > 0) {
                     const detectadosAhora = nombresActuales.filter(n => !listaLimpia.includes(n));
+                    if (detectadosAhora.length > 0) {
+                        console.log(`✨ [NOVEDADES] Detectados ${detectadosAhora.length} nuevos eventos.`);
+                    }
+                    
                     for (const nombre of detectadosAhora) {
                         try {
                             const linkInfo = await extraerLinkCompra(nombre, bearerToken);
@@ -90,7 +101,6 @@ async function iniciarMonitor() {
                     }
                 }
                 listaLimpia = [...nombresActuales];
-                console.log(`✅ [SCAN] ${nombresActuales.length} eventos procesados.`);
 
             } catch (err) {
                 console.log("⚠️ Error en ciclo API:", err.message);
