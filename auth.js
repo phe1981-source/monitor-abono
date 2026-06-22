@@ -1,10 +1,17 @@
-// auth.js
+const axios = require('axios');
+
 async function realizarLoginYExtraerCookies() {
-    console.log("🍪 [AUTH] Usando cookie de sesión fija.");
-    const cookie = process.env.COOKIE_SESION;
-    if (!cookie) {
-        throw new Error("❌ COOKIE_SESION no configurada en Render.");
-    }
-    return cookie;
+    const usuario = process.env.ABONO_USUARIO;
+    const password = process.env.ABONO_PASSWORD;
+
+    const response = await axios.post(
+        'https://api.abonoteatro.com/api/web/login', // ⚠️ you need to confirm this endpoint
+        { email: usuario, password: password },
+        { headers: { 'Content-Type': 'application/json' } }
+    );
+
+    const setCookie = response.headers['set-cookie'];
+    if (!setCookie) throw new Error("No se recibió cookie tras el login.");
+    
+    return setCookie.map(c => c.split(';')[0]).join('; ');
 }
-module.exports = { realizarLoginYExtraerCookies };
