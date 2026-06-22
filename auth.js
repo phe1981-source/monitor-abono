@@ -8,27 +8,52 @@ async function realizarLoginYExtraerCookies() {
         throw new Error("❌ ABONO_USUARIO o ABONO_PASS no configurados.");
     }
 
-    console.log("🔐 [AUTH] Intentando login con email y contraseña...");
+    console.log("🔐 [AUTH] Obteniendo CSRF token...");
 
-    const response = await axios.post(
-        'https://api.abonoteatro.com/api/web/auth/login',
-        { email: usuario, password: password },
+    // Step 1: Get CSRF token
+    const csrfResponse = await axios.get('https://www.abonoteatro.com/api/auth/csrf', {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
+        }
+    });
+
+    const csrfToken = csrfResponse.data.csrfToken;
+    const csrfCookie = csrfResponse.headers['set-cookie']
+        ?.map(c => c.split(';')[0]).join('; ');
+
+    if (!csrfToken) throw new Error("❌ No se pudo obtener el CSRF token.");
+    console.log("✅ [AUTH] CSRF token obtenido.");
+
+    // Step 2: Login
+    const params = new URLSearchParams();
+    params.append('email', usuario);
+    params.append('password', password);
+    params.append('redirect', 'false');
+    params.append('csrfToken', csrfToken);
+    params.append('callbackUrl', 'https://www.abonoteatro.com/auth/login');
+    params.append('json', 'true');
+
+    const loginResponse = await axios.post(
+        'https://www.abonoteatro.com/api/auth/callback/credentials',
+        params,
         {
             headers: {
-                'Content-Type': 'application/json',
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Cookie': csrfCookie,
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
             },
-            withCredentials: true
+            maxRedirects: 0,
+            validateStatus: s => s < 400
         }
     );
 
-    const setCookie = response.headers['set-cookie'];
+    const setCookie = loginResponse.headers['set-cookie'];
     if (!setCookie || setCookie.length === 0) {
-        throw new Error("❌ Login exitoso pero sin cookie en respuesta.");
+        throw new Error("❌ Login fallido - sin cookie en respuesta.");
     }
 
-    const cookie = setCookie.map(c => c.split(';')[0]).join('; ');
-    console.log("✅ [AUTH] Cookie obtenida automáticamente.");
+    const cookie = [csrfCookie, ...setCookie.map(c => c.split(';')[0])].join('; ');
+    console.log("✅ [AUTH] Sesión iniciada correctamente.");
     return cookie;
 }
 
