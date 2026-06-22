@@ -14,6 +14,7 @@ async function iniciarMonitor() {
     console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
+    // Login inicial
     try {
         sessionCookie = await realizarLoginYExtraerCookies();
         console.log("🍪 [AUTH] Cookie de sesión obtenida.");
