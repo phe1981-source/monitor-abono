@@ -6,17 +6,28 @@ const { enviarNotificacion } = require('./notificaciones');
 
 const app = express();
 let listaLimpia = [];
-let sessionCookie = "";
+let bearerToken = "";
 
 app.get('/', (req, res) => res.send('OK'));
+
+const API_HEADERS = () => ({
+    'Authorization': `Bearer ${bearerToken}`,
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
+    'accept': 'application/json, text/plain, */*',
+    'origin': 'https://www.abonoteatro.com',
+    'referer': 'https://www.abonoteatro.com/',
+    'x-locale': 'es_ES',
+    'x-market': '01833ce0-3486-7bfd-84a1-ad157cf64005',
+    'x-user-type': 'SUBSCRIBER'
+});
 
 async function iniciarMonitor() {
     console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
     try {
-        sessionCookie = await realizarLoginYExtraerCookies();
-        console.log("🍪 [AUTH] Cookie de sesión obtenida.");
+        bearerToken = await realizarLoginYExtraerCookies();
+        console.log("🔑 [AUTH] Bearer token obtenido.");
     } catch (err) {
         console.error("❌ [AUTH] Fallo al iniciar:", err.message);
         await new Promise(r => setTimeout(r, 60000));
@@ -31,15 +42,11 @@ async function iniciarMonitor() {
             console.log(`🌙 [NOCHE] ${ahoraES.toLocaleTimeString()} - Modo reposo.`);
         } else {
             console.log(`📡 [SCAN] --- CICLO API: ${ahoraES.toLocaleTimeString()} ---`);
-            // ✅ Debug line HERE, just before the API call
-            console.log("🔍 [SCAN] Cookie enviada:", sessionCookie.substring(0, 120) + "...");
             try {
-                const response = await axios.get("https://api.abonoteatro.com/api/web/events?page=1&itemsPerPage=50", {
-                    headers: {
-                        'Cookie': sessionCookie,
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36'
-                    }
-                });
+                const response = await axios.get(
+                    "https://api.abonoteatro.com/api/web/events?page=1&itemsPerPage=50",
+                    { headers: API_HEADERS() }
+                );
 
                 const eventos = response.data.items || [];
                 const nombresActuales = eventos.map(e => e.name);
@@ -48,7 +55,7 @@ async function iniciarMonitor() {
                     const detectadosAhora = nombresActuales.filter(n => !listaLimpia.includes(n));
                     for (const nombre of detectadosAhora) {
                         try {
-                            const linkInfo = await extraerLinkCompra(nombre, sessionCookie);
+                            const linkInfo = await extraerLinkCompra(nombre, bearerToken);
                             await enviarNotificacion(linkInfo.mensajeFormateado);
                         } catch (err) {
                             console.log(`❌ Error procesando: ${nombre}`);
@@ -65,8 +72,8 @@ async function iniciarMonitor() {
                     console.log("⚠️ Body:", JSON.stringify(err.response.data));
                 }
                 if (err.response && (err.response.status === 401 || err.response.status === 403)) {
-                    console.log("🔄 Sesión caducada, re-autenticando...");
-                    sessionCookie = await realizarLoginYExtraerCookies();
+                    console.log("🔄 Token caducado, re-autenticando...");
+                    bearerToken = await realizarLoginYExtraerCookies();
                 }
             }
         }
