@@ -63,9 +63,10 @@ async function iniciarMonitor() {
         console.log("🔑 [AUTH] Bearer token obtenido.");
     } catch (err) {
         console.error("❌ [AUTH] Fallo al iniciar:", err.message);
-// Genera un número aleatorio entre 60,000 (1 min) y 180,000 (3 min)
-const espera = Math.floor(Math.random() * (180000 - 60000 + 1) + 60000);
-await new Promise(r => setTimeout(r, espera));
+        // Espera de seguridad antes de reintentar el inicio
+        const espera = Math.floor(Math.random() * (180000 - 60000 + 1) + 60000);
+        console.log(`⏱️ Fallo inicial. Reintentando inicio en ${Math.round(espera / 1000)}s...`);
+        await new Promise(r => setTimeout(r, espera));
         return iniciarMonitor();
     }
 
@@ -74,7 +75,7 @@ await new Promise(r => setTimeout(r, espera));
         
         if (ahoraES.getHours() >= 23 || ahoraES.getHours() < 6) {
             console.log(`🌙 [NOCHE] Reposo.`);
-            await new Promise(r => setTimeout(r, 600000)); // Espera 10 min en reposo antes de volver a mirar la hora
+            await new Promise(r => setTimeout(r, 600000));
         } else {
             console.log(`📡 [SCAN] --- INICIO DE ESCANEO TOTAL ---`);
             const inicio = Date.now();
@@ -112,8 +113,6 @@ await new Promise(r => setTimeout(r, espera));
                 }
             }
 
-            // --- AQUÍ ESTÁ LA MEJORA ---
-            // Genera el tiempo de espera aleatorio (1 a 3 min)
             const esperaMs = Math.floor(Math.random() * (180000 - 60000 + 1) + 60000);
             const proximoEscaneo = new Date(Date.now() + esperaMs);
             const horaProximo = proximoEscaneo.toLocaleTimeString('es-ES', { hour12: false });
@@ -122,6 +121,7 @@ await new Promise(r => setTimeout(r, espera));
             await new Promise(r => setTimeout(r, esperaMs));
         }
     }
+}
 
 function programarReinicio() {
     const calcularMs = () => {
