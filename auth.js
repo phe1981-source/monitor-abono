@@ -58,7 +58,14 @@ async function realizarLoginYExtraerCookies() {
         throw new Error("❌ Login fallido - sin cookie en respuesta.");
     }
 
-    const cookie = [csrfCookie, ...setCookie.map(c => c.split(';')[0])].join('; ');
+// Only keep the session token - that's what the API needs
+const sessionCookie = setCookie
+    .map(c => c.split(';')[0])
+    .find(c => c.includes('session-token'));
+
+if (!sessionCookie) throw new Error("❌ No se encontró session-token en la respuesta.");
+
+const cookie = `${csrfCookie}; ${sessionCookie}`;
     console.log("✅ [AUTH] Sesión iniciada correctamente.");
     return cookie;
 }
