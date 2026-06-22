@@ -14,7 +14,6 @@ async function iniciarMonitor() {
     console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
-    // Login inicial
     try {
         sessionCookie = await realizarLoginYExtraerCookies();
         console.log("🍪 [AUTH] Cookie de sesión obtenida.");
@@ -57,7 +56,6 @@ async function iniciarMonitor() {
 
             } catch (err) {
                 console.log("⚠️ Error en ciclo API:", err.message);
-                // Si la sesión caduca (401), re-autenticamos
                 if (err.response && (err.response.status === 401 || err.response.status === 403)) {
                     console.log("🔄 Sesión caducada, re-autenticando...");
                     sessionCookie = await realizarLoginYExtraerCookies();
@@ -87,6 +85,7 @@ function programarReinicio() {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 Servidor activo en puerto ${PORT}`);
     iniciarMonitor();
     programarReinicio();
 });
