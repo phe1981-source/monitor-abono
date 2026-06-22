@@ -14,14 +14,18 @@ async function iniciarMonitor() {
     console.log("🚀 [SISTEMA] Monitor V5.0 (API Mode) Iniciado");
     await enviarNotificacion("✅ SISTEMA ONLINE");
 
+  // ... dentro de iniciarMonitor
     // Login inicial
     try {
         sessionCookie = await realizarLoginYExtraerCookies();
         console.log("🍪 [AUTH] Cookie de sesión obtenida.");
     } catch (err) {
-        console.error("❌ [AUTH] Fallo al iniciar sesión:", err.message);
-        process.exit(1); 
+        console.error("❌ [AUTH] Fallo al iniciar:", err.message);
+        // CAMBIO: En lugar de matar el bot (exit), esperamos un poco y reintentamos
+        await new Promise(r => setTimeout(r, 60000));
+        return iniciarMonitor(); // Reinicia el proceso de login sin matar el proceso
     }
+// ... resto del código
 
     while (true) {
         const ahoraES = new Date(new Date().toLocaleString("en-US", {timeZone: "Europe/Madrid"}));
