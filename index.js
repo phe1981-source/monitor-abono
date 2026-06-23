@@ -96,7 +96,7 @@ async function iniciarMonitor() {
                     
                     for (const nombre of detectadosAhora) {
                         try {
-                            const linkInfo = await extraerLinkCompra(nombre, bearerToken);
+                            const linkInfo = await extraerLinkCompra(nombre, bearerToken, eventos);
                             await enviarNotificacion(linkInfo.mensajeFormateado);
                         } catch (err) {
                             console.log(`❌ Error procesando: ${nombre}`);
