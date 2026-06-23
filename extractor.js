@@ -1,21 +1,6 @@
-const axios = require('axios');
-
-async function extraerLinkCompra(nombreEvento, bearerToken) {
+async function extraerLinkCompra(nombreEvento, bearerToken, eventosCache) {
     try {
-        const response = await axios.get("https://api.abonoteatro.com/api/web/events?page=1&itemsPerPage=50", {
-            headers: {
-                'Authorization': `Bearer ${bearerToken}`,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
-                'accept': 'application/json, text/plain, */*',
-                'origin': 'https://www.abonoteatro.com',
-                'referer': 'https://www.abonoteatro.com/',
-                'x-locale': 'es_ES',
-                'x-market': '01833ce0-3486-7bfd-84a1-ad157cf64005',
-                'x-user-type': 'SUBSCRIBER'
-            }
-        });
-
-        const evento = response.data.items.find(e =>
+        const evento = eventosCache?.find(e =>
             e.name.toLowerCase().includes(nombreEvento.toLowerCase())
         );
 
@@ -29,8 +14,9 @@ async function extraerLinkCompra(nombreEvento, bearerToken) {
                 mensajeFormateado: `${esVIP ? "🎯 " : ""}${evento.name}\n🏛️ ${teatro}\n🔗 ${urlFinal}`
             };
         }
-        throw new Error("No encontrado");
+        throw new Error("No encontrado en cache");
     } catch (error) {
+        console.log(`❌ [EXTRACTOR] Error: ${error.message}`);
         return { exito: false, mensajeFormateado: `${nombreEvento}\n🔗 Revisa la web manualmente.` };
     }
 }
